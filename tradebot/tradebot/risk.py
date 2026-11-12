@@ -1,0 +1,78 @@
+"""Risikomanagement: Positionsgroesse, Stop-Loss, Take-Profit, Trailing-Stop, Tageslimit, Kill-Switch."""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class RiskConfig:
+    risk_per_trade_pct: float = 0.02   # max. Verlust pro Trade in % des Kapitals
+    max_position_pct: float = 0.50     # max. Anteil des Kapitals in einer Position
+    stop_loss_pct: float = 0.05        # initialer Stop-Loss
+    take_profit_pct: float = 0.10      # Gewinnmitnahme
+    trail_activation_pct: float = 0.04 # ab diesem Gewinn wird Trailing-Stop aktiv
+    trail_distance_pct: float = 0.03   # Abstand des Trailing-Stops zum Hoch
+    max_daily_loss_pct: float = 0.05   # Tagesverlust, ab dem nichts mehr eroeffnet wird
+    max_open_positions: int = 1
+    fee_pct: float = 0.015             # Gebuehr je Seite (konservativ, bitte pruefen)
+
+
+@dataclass
+class Position:
+    symbol: str
+    qty: float
+    entry: float
+    peak: float
+    stop: float
+    take_profit: float
+    trailing_active: bool = False
+
+
+@dataclass
+class RiskState:
+    day_start_equity: float
+    halted: bool = False
+    reason: str = ""
+
+
+def position_size(equity: float, price: float, cfg: RiskConfig) -> float:
+    """Menge so waehlen, dass ein Stop-Loss-Treffer hoechstens risk_per_trade_pct kostet."""
+    if price <= 0 or equity <= 0:
+        return 0.0
+    risk_amount = equity * cfg.risk_per_trade_pct
+    qty_by_risk = risk_amount / (price * cfg.stop_loss_pct)
+    qty_by_cap = equity * cfg.max_position_pct / price
+    return max(0.0, min(qty_by_risk, qty_by_cap))
+
+
+def open_position(symbol: str, qty: float, price: float, cfg: RiskConfig) -> Position:
+    return Position(
+        symbol=symbol,
+        qty=qty,
+        entry=price,
+        peak=price,
+        stop=price * (1 - cfg.stop_loss_pct),
+        take_profit=price * (1 + cfg.take_profit_pct),
+    )
+
+
+def update_position(pos: Position, price: float, cfg: RiskConfig) -> str | None:
+    """Aktualisiert Hoch/Trailing-Stop. Gibt 'stop', 'take_profit' oder None zurueck."""
+    pos.peak = max(pos.peak, price)
+    if not pos.trailing_active and price >= pos.entry * (1 + cfg.trail_activation_pct):
+        pos.trailing_active = True
+    if pos.trailing_active:
+        # Stop wandert nur nach oben und sichert Gewinne ab.
+        pos.stop = max(pos.stop, pos.peak * (1 - cfg.trail_distance_pct))
+    if price <= pos.stop:
+        return "stop"
+    if price >= pos.take_profit:
+        return "take_profit"
+    return None
+
+
+def check_daily_limit(state: RiskState, equity: float, cfg: RiskConfig) -> None:
+    loss = (state.day_start_equity - equity) / state.day_start_equity
+    if loss >= cfg.max_daily_loss_pct and not state.halted:
+        state.halted = True
+        state.reason = f"Tagesverlust {loss:.1%} erreicht"

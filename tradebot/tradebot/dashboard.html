@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tradebot</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#111;color:#eee}
+h1{font-size:20px} .card{background:#1c1c1c;border-radius:12px;padding:12px;margin:10px 0}
+.big{font-size:28px} .neg{color:#f66} .pos{color:#6f6} pre{white-space:pre-wrap;font-size:12px}
+</style></head><body>
+<h1>Tradebot (Paper)</h1>
+<div class="card"><div>Equity</div><div class="big" id="eq">–</div><div id="meta"></div></div>
+<div class="card"><b>Position</b><pre id="pos">–</pre></div>
+<div class="card"><b>Log</b><pre id="log">–</pre></div>
+<script>
+async function refresh(){
+  try{
+    const s = await (await fetch('state.json?t='+Date.now())).json();
+    document.getElementById('eq').textContent = s.equity.toFixed(2)+' €';
+    document.getElementById('meta').textContent = 'Cash '+s.cash.toFixed(2)+' € · '+(s.halted?'GESTOPPT: '+s.halt_reason:'aktiv')+(s.kill_switch?' · KILL-SWITCH AN':'');
+    document.getElementById('pos').textContent = JSON.stringify(s.positions,null,2) || 'keine';
+    document.getElementById('log').textContent = s.log.join('\n');
+  }catch(e){ document.getElementById('meta').textContent='state.json nicht lesbar'; }
+}
+refresh(); setInterval(refresh, 5000);
+</script></body></html>
