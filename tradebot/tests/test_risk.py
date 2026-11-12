@@ -80,3 +80,16 @@ def test_kill_switch_blocks_entries(tmp_path):
     for p in [100, 100, 100, 100, 100, 101, 102]:
         e.tick(float(p), 0.9)
     assert not e.positions
+
+
+def test_parse_kraken_and_fear_greed():
+    import json
+    import pytest
+    from tradebot.datasources import DataError, parse_fear_greed, parse_kraken_price
+    ok = json.dumps({"error": [], "result": {"XXBTZEUR": {"c": ["58123.4", "0.1"]}}}).encode()
+    assert parse_kraken_price(ok) == 58123.4
+    with pytest.raises(DataError):
+        parse_kraken_price(json.dumps({"error": ["EQuery:Unknown asset pair"], "result": {}}).encode())
+    assert parse_fear_greed(json.dumps({"data": [{"value": "18"}]}).encode()) == 18
+    with pytest.raises(DataError):
+        parse_fear_greed(json.dumps({"data": [{"value": "150"}]}).encode())
