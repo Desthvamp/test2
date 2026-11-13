@@ -3,28 +3,79 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tradebot</title>
 <style>
-body{font-family:system-ui,sans-serif;margin:0;padding:16px;background:#111;color:#eee}
-h1{font-size:20px} .card{background:#1c1c1c;border-radius:12px;padding:12px;margin:10px 0}
-.big{font-size:28px} .neg{color:#f66} .pos{color:#6f6} pre{white-space:pre-wrap;font-size:12px}
+body{font-family:system-ui,sans-serif;margin:0 auto;padding:16px;background:#111;color:#eee;max-width:720px}
+h1{font-size:20px;margin:4px 0 12px}
+.badge{font-size:12px;font-weight:normal;background:#2a3b55;border-radius:6px;padding:3px 8px;margin-left:8px;vertical-align:middle}
+.card{background:#1c1c1c;border-radius:12px;padding:12px 14px;margin:10px 0}
+.card b{display:block;margin-bottom:6px}
+.big{font-size:30px;font-variant-numeric:tabular-nums}
+.sub{color:#aaa;font-size:14px;margin-top:2px}
+.neg{color:#ff7b7b}.pos{color:#7ddc8a}
+.warn{background:#5a1f1f;border-radius:12px;padding:12px 14px;margin:10px 0;display:none;white-space:pre-line}
+.row{margin:4px 0;font-size:15px}
+.check{margin:5px 0;font-size:14px;padding-left:22px;text-indent:-22px}
+pre{white-space:pre-wrap;font-size:12px;margin:0;color:#ccc}
 </style></head><body>
-<h1>Tradebot (Paper)</h1>
-<div class="card"><div>Equity</div><div class="big" id="eq">–</div><div id="meta"></div></div>
+<h1>Tradebot <span class="badge">PAPER · kein echtes Geld</span></h1>
+<div class="warn" id="warn"></div>
+<div class="card"><b>Kontostand</b><div class="big" id="eq">–</div><div class="sub" id="pl"></div><div class="sub" id="cash"></div></div>
+<div class="card"><b>Markt</b><div class="row" id="price">–</div><div class="row" id="news"></div><div class="row" id="fg"></div></div>
+<div class="card"><b>Kaufsignal</b><div class="sub" id="sigsum"></div><div id="signal">–</div></div>
 <div class="card"><b>Position</b><pre id="pos">–</pre></div>
 <div class="card"><b>Trades</b><pre id="trades">–</pre></div>
-<div class="card"><b>Log</b> <span id="upd"></span><pre id="log">–</pre></div>
+<div class="card"><b>Ereignisse</b><pre id="log">–</pre></div>
 <script>
+const $ = id => document.getElementById(id);
+const eur = x => x.toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+const pct = x => (x >= 0 ? '+' : '') + (100 * x).toLocaleString('de-DE', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' %';
+const ago = s => s < 90 ? Math.round(s) + ' Sek' : s < 5400 ? Math.round(s / 60) + ' Min' : (s / 3600).toFixed(1) + ' Std';
+function fgText(v){ return v <= 25 ? 'extreme Angst' : v < 45 ? 'Angst' : v <= 55 ? 'neutral' : v < 75 ? 'Gier' : 'extreme Gier'; }
+
+function render(s){
+  const now = Date.now() / 1000, st = s.status || {}, warn = [];
+  if (now - s.saved_at > 120) warn.push('⚠ Der Bot läuft nicht mehr. Letztes Lebenszeichen vor ' + ago(now - s.saved_at) + '.');
+  else if (st.price_ts && now - st.price_ts > 120) warn.push('⚠ Seit ' + ago(now - st.price_ts) + ' kein neuer Kurs. Offene Positionen werden gerade nicht überwacht.');
+  if (s.kill_switch) warn.push('⚠ Not-Aus ist aktiv: keine Käufe, offene Positionen werden verkauft.');
+  if (s.halted) warn.push('⚠ ' + s.halt_reason + '. Heute keine neuen Käufe.');
+  $('warn').style.display = warn.length ? 'block' : 'none';
+  $('warn').textContent = warn.join('\n');
+
+  $('eq').textContent = eur(s.equity);
+  const d = s.equity - s.start_equity;
+  $('pl').textContent = 'Start ' + eur(s.start_equity) + ' · Ergebnis ' + (d >= 0 ? '+' : '') + eur(d) + ' (' + pct(d / s.start_equity) + ')';
+  $('pl').className = 'sub ' + (d > 0.005 ? 'pos' : d < -0.005 ? 'neg' : '');
+  $('cash').textContent = 'Davon frei: ' + eur(s.cash);
+
+  $('price').textContent = st.price ? 'Bitcoin: ' + eur(st.price) + '  (vor ' + ago(Math.max(0, now - st.price_ts)) + ')' : 'Bitcoin: noch kein Kurs';
+  $('news').textContent = 'Nachrichten: ' + (st.news == null ? 'nicht verfügbar' : (st.news >= 0 ? '+' : '') + st.news.toFixed(2) + '  (' + st.news_info + ')');
+  $('fg').textContent = 'Fear & Greed: ' + (st.fear_greed == null ? 'nicht verfügbar' : st.fear_greed + '  (' + fgText(st.fear_greed) + ')');
+
+  const sig = s.signal || [], ok = sig.filter(c => c.ok).length;
+  $('sigsum').textContent = sig.length > 1 ? ok + ' von ' + sig.length + ' Bedingungen erfüllt. Gekauft wird nur, wenn alle erfüllt sind.' : '';
+  $('signal').replaceChildren(...sig.map(c => {
+    const e = document.createElement('div');
+    if (sig.length == 1) { e.className = 'row'; e.textContent = c.text; return e; }   // nur ein Hinweis, keine Checkliste
+    e.className = 'check ' + (c.ok ? 'pos' : 'neg');
+    e.textContent = (c.ok ? '✓ ' : '✗ ') + c.text; return e; }));
+  if (!sig.length) $('signal').textContent = 'noch nicht berechnet';
+
+  const ps = Object.values(s.positions).map(p => {
+    const val = p.qty * (st.price || p.entry), chg = (st.price || p.entry) / p.entry - 1;
+    return p.symbol + ': ' + p.qty.toFixed(6) + ' (Wert ' + eur(val) + ', ' + pct(chg) + ' seit Kauf)\n' +
+      'Einstieg ' + eur(p.entry) + '\nStop     ' + eur(p.stop) + (p.trailing_active ? '  (nachgezogen)' : '') + '\nZiel     ' + eur(p.take_profit);
+  });
+  $('pos').textContent = ps.join('\n\n') || 'keine';
+  const ts = s.trades.map(t => (t.side == 'buy' ? 'KAUF    ' : 'VERKAUF ') + t.qty.toFixed(6) + ' @ ' + eur(t.price) + '  (Gebühr ' + eur(t.fee) + ')');
+  $('trades').textContent = ts.reverse().join('\n') || 'noch keine';
+  $('log').textContent = s.log.slice().reverse().join('\n') || 'noch keine';
+}
+
 async function refresh(){
-  try{
-    const s = await (await fetch('state.json?t='+Date.now())).json();
-    document.getElementById('eq').textContent = s.equity.toFixed(2)+' €';
-    document.getElementById('meta').textContent = 'Cash '+s.cash.toFixed(2)+' € · '+(s.halted?'GESTOPPT: '+s.halt_reason:'aktiv')+(s.kill_switch?' · KILL-SWITCH AN':'');
-    const ps = Object.values(s.positions).map(p => p.symbol+'  Menge '+p.qty.toFixed(6)+'\n  Einstieg '+p.entry.toFixed(2)+' · Stop '+p.stop.toFixed(2)+(p.trailing_active?' (nachgezogen)':'')+' · Ziel '+p.take_profit.toFixed(2));
-    document.getElementById('pos').textContent = ps.join('\n') || 'keine';
-    const ts = s.trades.map(t => (t.side=='buy'?'KAUF    ':'VERKAUF ')+t.symbol+'  '+t.qty.toFixed(6)+' @ '+t.price.toFixed(2)+'  (Gebühr '+t.fee.toFixed(2)+' €)');
-    document.getElementById('trades').textContent = ts.reverse().join('\n') || 'noch keine';
-    document.getElementById('log').textContent = s.log.slice().reverse().join('\n');
-    document.getElementById('upd').textContent = '';
-  }catch(e){ document.getElementById('upd').textContent='– keine Verbindung zum Bot'; }
+  try { render(await (await fetch('state.json?t=' + Date.now(), {cache: 'no-store'})).json()); }
+  catch (e) {
+    $('warn').style.display = 'block';
+    $('warn').textContent = '⚠ Keine Verbindung zum Bot. Läuft er noch in Termux?';
+  }
 }
 refresh(); setInterval(refresh, 5000);
 </script></body></html>

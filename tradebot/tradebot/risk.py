@@ -1,4 +1,4 @@
-"""Risikomanagement: Positionsgroesse, Stop-Loss, Take-Profit, Trailing-Stop, Tageslimit, Kill-Switch."""
+"""Risikomanagement: Positionsgröße, Stop-Loss, Take-Profit, Trailing-Stop, Tageslimit, Kill-Switch."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,15 +6,15 @@ from dataclasses import dataclass, field
 
 @dataclass
 class RiskConfig:
-    risk_per_trade_pct: float = 0.02   # max. Verlust pro Trade in % des Kapitals
+    risk_per_trade_pct: float = 0.02   # max. Verlust pro Trade (inkl. Gebühren) in % des Kapitals
     max_position_pct: float = 0.50     # max. Anteil des Kapitals in einer Position
     stop_loss_pct: float = 0.05        # initialer Stop-Loss
     take_profit_pct: float = 0.10      # Gewinnmitnahme
-    trail_activation_pct: float = 0.04 # ab diesem Gewinn wird Trailing-Stop aktiv
+    trail_activation_pct: float = 0.06 # ab diesem Gewinn wird Trailing-Stop aktiv (deckt dann etwa die Gebühren)
     trail_distance_pct: float = 0.03   # Abstand des Trailing-Stops zum Hoch
     max_daily_loss_pct: float = 0.05   # Tagesverlust, ab dem nichts mehr eroeffnet wird
     max_open_positions: int = 1
-    fee_pct: float = 0.015             # Gebuehr je Seite (konservativ, bitte pruefen)
+    fee_pct: float = 0.015             # Gebühr je Seite (konservativ, bitte prüfen)
 
 
 @dataclass
@@ -36,11 +36,13 @@ class RiskState:
 
 
 def position_size(equity: float, price: float, cfg: RiskConfig) -> float:
-    """Menge so waehlen, dass ein Stop-Loss-Treffer hoechstens risk_per_trade_pct kostet."""
+    """Menge so wählen, dass ein Stop-Loss-Treffer inklusive Kauf- und Verkaufsgebuehr
+    höchstens risk_per_trade_pct des Kapitals kostet."""
     if price <= 0 or equity <= 0:
         return 0.0
     risk_amount = equity * cfg.risk_per_trade_pct
-    qty_by_risk = risk_amount / (price * cfg.stop_loss_pct)
+    loss_per_euro = cfg.stop_loss_pct + 2 * cfg.fee_pct
+    qty_by_risk = risk_amount / (price * loss_per_euro)
     qty_by_cap = equity * cfg.max_position_pct / price
     return max(0.0, min(qty_by_risk, qty_by_cap))
 

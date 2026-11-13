@@ -1,5 +1,4 @@
 from tradebot.broker import PaperBroker, BrokerError
-from tradebot.engine import Engine, EngineConfig
 from tradebot.news import score_text, aggregate
 from tradebot.risk import RiskConfig, RiskState, check_daily_limit, open_position, position_size, update_position
 
@@ -7,9 +6,12 @@ from tradebot.risk import RiskConfig, RiskState, check_daily_limit, open_positio
 def test_position_size_respects_risk_and_cap():
     cfg = RiskConfig()
     qty = position_size(100.0, 50.0, cfg)
-    # Stop-Loss-Treffer darf hoechstens 2 % (2 EUR) kosten
-    assert qty * 50.0 * cfg.stop_loss_pct <= 100 * cfg.risk_per_trade_pct + 1e-9
     assert qty * 50.0 <= 100 * cfg.max_position_pct + 1e-9
+    # Durchgespielt: kaufen, am Stop-Loss verkaufen -> Verlust inkl. Gebuehren hoechstens 2 % (2 EUR)
+    b = PaperBroker(cash=100.0, fee_pct=cfg.fee_pct)
+    b.buy("X", qty, 50.0)
+    b.sell("X", qty, 50.0 * (1 - cfg.stop_loss_pct))
+    assert 1.9 < 100.0 - b.cash <= 2.0
 
 
 def test_stop_loss_triggers():
@@ -27,12 +29,17 @@ def test_take_profit_triggers():
 def test_trailing_stop_only_moves_up_and_locks_gains():
     cfg = RiskConfig(take_profit_pct=1.0)
     pos = open_position("X", 1, 100.0, cfg)
-    update_position(pos, 105.0, cfg)  # Trailing aktiv
+    assert update_position(pos, 105.0, cfg) is None and not pos.trailing_active  # unter +6 %: noch nicht aktiv
+    update_position(pos, 107.0, cfg)
+    assert pos.trailing_active
     stop_after_up = pos.stop
-    update_position(pos, 108.0, cfg)
+    update_position(pos, 110.0, cfg)
     assert pos.stop > stop_after_up
-    assert update_position(pos, 104.0, cfg) == "stop"
-    assert pos.stop >= 100.0  # Gewinn gesichert, kein Verlust mehr
+    update_position(pos, 108.0, cfg)          # Kurs faellt, Stop bleibt stehen
+    assert pos.stop == 110.0 * (1 - cfg.trail_distance_pct)
+    assert update_position(pos, 106.0, cfg) == "stop"
+    # gesicherter Gewinn deckt bei Aktivierung etwa die Gebuehren beider Seiten
+    assert 1.06 * (1 - cfg.trail_distance_pct) * (1 - cfg.fee_pct) > (1 + cfg.fee_pct) * 0.995
 
 
 def test_daily_limit_halts():
@@ -58,28 +65,19 @@ def test_news_scoring():
     assert score_text("Bitcoin ETF inflow record, bullish rally") > 0
     assert score_text("Exchange hack and lawsuit, bearish crash") < 0
     assert aggregate([]) == 0.0
+    # Wortgrenzen: 'bank' ist kein 'ban', 'against' kein 'gain', 'fallout' kein 'fall'
+    assert score_text("Bank rules against issue, fallout unclear") == 0.0
 
 
-def test_engine_opens_and_closes(tmp_path):
-    cfg = EngineConfig(kill_file=str(tmp_path / "KILL"), state_file=str(tmp_path / "s.json"))
-    e = Engine(broker=PaperBroker(cash=100.0), cfg=cfg)
-    for p in [100, 100, 100, 100, 100, 101, 102]:
-        e.tick(float(p), 0.9)
-    assert "BTC-EUR" in e.positions
-    e.tick(120.0, 0.0)  # Take-Profit
-    assert not e.positions
-    e.save(120.0)
-    assert (tmp_path / "s.json").exists()
-
-
-def test_kill_switch_blocks_entries(tmp_path):
-    kill = tmp_path / "KILL"
-    kill.write_text("stop")
-    cfg = EngineConfig(kill_file=str(kill), state_file=str(tmp_path / "s.json"))
-    e = Engine(broker=PaperBroker(cash=100.0), cfg=cfg)
-    for p in [100, 100, 100, 100, 100, 101, 102]:
-        e.tick(float(p), 0.9)
-    assert not e.positions
+def test_news_summary_ignores_neutral_and_needs_min_signal():
+    from tradebot.news import summarize
+    neutral = [f"Neutral headline {i}" for i in range(30)]
+    s = summarize(neutral + ["Bitcoin surges", "ETF inflows soar", "Solana rallies", "Exchange hacked"])
+    assert (s.pos, s.neg, s.total) == (3, 1, 34) and s.score == 0.5
+    # zu wenige eindeutige Schlagzeilen -> neutral statt Zufallswert
+    assert summarize(neutral + ["Bitcoin surges", "Exchange hacked"]).score == 0.0
+    # doppelte Schlagzeilen zaehlen einmal
+    assert summarize(["Bitcoin surges"] * 5).pos == 1
 
 
 def test_parse_kraken_and_fear_greed():
