@@ -12,7 +12,9 @@ Live-Handel ist nicht implementiert.
 - Dashboard `dashboard.html` (liest `state.json`, im Browser des Tablets oeffnen)
 
 ## Noch offen (bewusst)
-- Echte Kursdaten und echte Nachrichten-Feeds: `run_paper.py` nutzt aktuell Zufallskurse
+- `run_live_paper.py` nutzt echte Kurse (Kraken) und Nachrichten (RSS), aber Spielgeld. Der Stand
+  wird in `state.json` gespeichert und nach einem Neustart weitergefuehrt. Zum Zuruecksetzen:
+  `state.json` loeschen. (`run_paper.py` ist nur eine Demo mit Zufallskursen.)
 - Bitpanda: `bitpanda.py` ist gegen die offizielle Doku gebaut (nur Quotes, keine Stop-Orders,
   Tageslimit am API-Key Pflicht). Nur mit simulierten Antworten getestet, noch kein Live-Starter.
 - Android: Das Dashboard ist eine Web-Seite, die man auf dem Tablet aufrufen kann. Eine native App ist nicht gebaut.

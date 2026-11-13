@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Callable
 
 from .broker import BrokerError, PaperBroker
 from .risk import (Position, RiskConfig, RiskState, check_daily_limit,
@@ -29,12 +31,26 @@ class Engine:
     positions: dict[str, Position] = field(default_factory=dict)
     prices: list[float] = field(default_factory=list)
     log: list[str] = field(default_factory=list)
+    on_log: Callable[[str], None] | None = None   # z. B. print, damit man im Terminal etwas sieht
+    day: str = ""                                  # Kalendertag, fuer den das Tageslimit gilt
 
     def __post_init__(self):
         self.risk = RiskState(day_start_equity=self.broker.cash)
 
     def _say(self, msg: str) -> None:
-        self.log = (self.log + [msg])[-200:]
+        line = time.strftime("%d.%m. %H:%M:%S ") + msg
+        self.log = (self.log + [line])[-200:]
+        if self.on_log:
+            self.on_log(line)
+
+    def start_day(self, day: str, equity: float) -> None:
+        """Neuer Kalendertag -> Tageslimit bezieht sich auf das Kapital von heute frueh."""
+        if day == self.day:
+            return
+        if self.day:  # nicht beim allerersten Aufruf
+            self.risk = RiskState(day_start_equity=equity)
+            self._say(f"Neuer Tag, Tageslimit zurueckgesetzt (Startkapital {equity:.2f})")
+        self.day = day
 
     def kill_switch_on(self) -> bool:
         return Path(self.cfg.kill_file).exists()
@@ -88,7 +104,40 @@ class Engine:
             "positions": {s: asdict(p) for s, p in self.positions.items()},
             "trades": self.broker.trades[-50:],
             "log": self.log[-50:],
+            # Exakte Werte, um nach einem Neustart genau dort weiterzumachen
+            "resume": {
+                "cash": self.broker.cash,
+                "holdings": dict(self.broker.holdings),
+                "positions": {s: asdict(p) for s, p in self.positions.items()},
+                "trades": self.broker.trades[-500:],
+                "prices": list(self.prices),
+                "day": self.day,
+                "day_start_equity": self.risk.day_start_equity,
+                "halted": self.risk.halted,
+                "halt_reason": self.risk.reason,
+            },
         }
+
+    def restore(self) -> bool:
+        """Laedt den letzten Stand aus state_file. False, wenn nichts Brauchbares da ist."""
+        try:
+            with open(self.cfg.state_file, encoding="utf-8") as f:
+                r = json.load(f)["resume"]
+            cash = float(r["cash"])
+            holdings = {str(k): float(v) for k, v in r["holdings"].items()}
+            positions = {str(k): Position(**v) for k, v in r["positions"].items()}
+            trades = list(r["trades"])
+            prices = [float(x) for x in r["prices"]]
+            risk = RiskState(day_start_equity=float(r["day_start_equity"]),
+                             halted=bool(r["halted"]), reason=str(r["halt_reason"]))
+            day = str(r["day"])
+        except (OSError, KeyError, ValueError, TypeError):
+            return False
+        if cash < 0 or risk.day_start_equity <= 0 or set(holdings) != set(positions):
+            return False
+        self.broker.cash, self.broker.holdings, self.broker.trades = cash, holdings, trades
+        self.positions, self.prices, self.risk, self.day = positions, prices, risk, day
+        return True
 
     def save(self, price: float) -> None:
         tmp = self.cfg.state_file + ".tmp"

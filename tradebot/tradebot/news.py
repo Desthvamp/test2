@@ -21,7 +21,8 @@ def score_text(text: str) -> float:
 
 
 def fetch_headlines(feed_url: str, timeout: float = 10.0) -> list[str]:
-    with urllib.request.urlopen(feed_url, timeout=timeout) as resp:  # noqa: S310 - URL kommt aus Config
+    req = urllib.request.Request(feed_url, headers={"User-Agent": "tradebot/0.1"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 - URL kommt aus Config
         root = ET.fromstring(resp.read())
     return [item.findtext("title", default="") for item in root.iter("item")]
 

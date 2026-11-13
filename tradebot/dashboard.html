@@ -10,16 +10,21 @@ h1{font-size:20px} .card{background:#1c1c1c;border-radius:12px;padding:12px;marg
 <h1>Tradebot (Paper)</h1>
 <div class="card"><div>Equity</div><div class="big" id="eq">–</div><div id="meta"></div></div>
 <div class="card"><b>Position</b><pre id="pos">–</pre></div>
-<div class="card"><b>Log</b><pre id="log">–</pre></div>
+<div class="card"><b>Trades</b><pre id="trades">–</pre></div>
+<div class="card"><b>Log</b> <span id="upd"></span><pre id="log">–</pre></div>
 <script>
 async function refresh(){
   try{
     const s = await (await fetch('state.json?t='+Date.now())).json();
     document.getElementById('eq').textContent = s.equity.toFixed(2)+' €';
     document.getElementById('meta').textContent = 'Cash '+s.cash.toFixed(2)+' € · '+(s.halted?'GESTOPPT: '+s.halt_reason:'aktiv')+(s.kill_switch?' · KILL-SWITCH AN':'');
-    document.getElementById('pos').textContent = JSON.stringify(s.positions,null,2) || 'keine';
-    document.getElementById('log').textContent = s.log.join('\n');
-  }catch(e){ document.getElementById('meta').textContent='state.json nicht lesbar'; }
+    const ps = Object.values(s.positions).map(p => p.symbol+'  Menge '+p.qty.toFixed(6)+'\n  Einstieg '+p.entry.toFixed(2)+' · Stop '+p.stop.toFixed(2)+(p.trailing_active?' (nachgezogen)':'')+' · Ziel '+p.take_profit.toFixed(2));
+    document.getElementById('pos').textContent = ps.join('\n') || 'keine';
+    const ts = s.trades.map(t => (t.side=='buy'?'KAUF    ':'VERKAUF ')+t.symbol+'  '+t.qty.toFixed(6)+' @ '+t.price.toFixed(2)+'  (Gebühr '+t.fee.toFixed(2)+' €)');
+    document.getElementById('trades').textContent = ts.reverse().join('\n') || 'noch keine';
+    document.getElementById('log').textContent = s.log.slice().reverse().join('\n');
+    document.getElementById('upd').textContent = '';
+  }catch(e){ document.getElementById('upd').textContent='– keine Verbindung zum Bot'; }
 }
 refresh(); setInterval(refresh, 5000);
 </script></body></html>
