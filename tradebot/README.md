@@ -25,7 +25,7 @@ Verkauft wird bei Stop-Loss (−5 %), Gewinnmitnahme (+10 %), nachgezogenem Stop
 dem Kurs mit 3 % Abstand) oder Not-Aus (Datei `KILL` im Ordner `tradebot` anlegen).
 
 Risiko (`risk.py`): pro Trade höchstens 2 % des Kapitals Verlust inklusive Gebühren, ab −5 % Tagesverlust
-keine neuen Käufe. Gebühr im Paper-Modus: 1,5 % je Kauf und Verkauf (Annahme, nicht verifiziert).
+keine neuen Käufe. Gebühr im Paper-Modus: 0,8 % je Kauf und Verkauf (Kraken, niedrigster Tarif, Stand November 2026).
 
 **Alle Schwellen sind Faustwerte und nicht an historischen Daten geprüft.** Die Nachrichten-Stimmung ist eine
 einfache Schlüsselwort-Zählung in englischen Schlagzeilen, keine KI.
@@ -35,12 +35,33 @@ einfache Schlüsselwort-Zählung in englischen Schlagzeilen, keine KI.
 Kurs: Kraken (öffentlich). Stimmung: alternative.me Fear & Greed. Nachrichten: RSS von Cointelegraph und CoinDesk.
 Kein Kurs: Tick wird übersprungen. Keine Nachrichten: es wird nichts gekauft, offene Positionen werden weiter überwacht.
 
+## Kraken (für später, echtes Geld)
+
+`kraken.py` ist nach der offiziellen Kraken-Doku gebaut:
+
+- Kauf als Limit-Order, die sofort ausgeführt wird oder verfällt (höchstens 0,5 % über dem aktuellen Kurs).
+- Der Stop-Loss liegt als echte Order bei Kraken und wird dort nachgezogen. Er greift auch, wenn der Bot
+  oder das Gerät ausfällt.
+- Gewinnmitnahme und Not-Aus macht der Bot selbst (Stop-Order löschen, Markt-Verkauf).
+- Der Bot verwaltet nur das zugewiesene Kapital, nicht das ganze Konto.
+- Ist nach einem Netzwerkfehler unklar, ob eine Order ankam, kauft der Bot nichts mehr, bis jemand
+  nachgesehen und ihn neu gestartet hat.
+
+Geprüft: Signatur gegen das Beispiel aus der Doku, öffentliche Abfragen gegen die echte Schnittstelle,
+alles Übrige gegen eine nachgebaute Börse (`tests/fake_kraken.py`). **Gegen ein echtes Konto lief nichts.**
+Einen Starter für echtes Geld gibt es noch nicht.
+
+Zugang prüfen, ohne zu handeln (API-Key ohne Auszahlungsrecht, nur auf dem Gerät eintragen):
+
+    export KRAKEN_API_KEY=...
+    export KRAKEN_API_SECRET=...
+    python -m tradebot.kraken_check
+
 ## Offen
 
-- Bitpanda (`bitpanda.py`): nach offizieller Doku gebaut, nur gegen simulierte Antworten getestet. Bitpanda kennt
-  keine Stop-Orders; der Stop-Loss läuft also nur, solange der Bot läuft.
+- Starter für echtes Geld, erst nach Paper-Test und Zugangsprüfung.
 - Dauerbetrieb: Der Bot braucht ein Gerät, das rund um die Uhr läuft.
 
 ## Tests
 
-    cd tradebot && PYTHONPATH=. python -m pytest -q tests
+    cd tradebot && PYTHONPATH=.:tests python -m pytest -q tests

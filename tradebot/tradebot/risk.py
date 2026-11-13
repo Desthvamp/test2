@@ -14,7 +14,7 @@ class RiskConfig:
     trail_distance_pct: float = 0.03   # Abstand des Trailing-Stops zum Hoch
     max_daily_loss_pct: float = 0.05   # Tagesverlust, ab dem nichts mehr eroeffnet wird
     max_open_positions: int = 1
-    fee_pct: float = 0.015             # Gebühr je Seite (konservativ, bitte prüfen)
+    fee_pct: float = 0.008             # Gebühr je Kauf/Verkauf: Kraken Taker, niedrigster Tarif
 
 
 @dataclass
@@ -26,6 +26,7 @@ class Position:
     stop: float
     take_profit: float
     trailing_active: bool = False
+    cost: float = 0.0   # bezahlter Betrag inklusive Kaufgebühr
 
 
 @dataclass
@@ -47,8 +48,9 @@ def position_size(equity: float, price: float, cfg: RiskConfig) -> float:
     return max(0.0, min(qty_by_risk, qty_by_cap))
 
 
-def open_position(symbol: str, qty: float, price: float, cfg: RiskConfig) -> Position:
+def open_position(symbol: str, qty: float, price: float, cfg: RiskConfig, cost: float = 0.0) -> Position:
     return Position(
+        cost=cost or qty * price * (1 + cfg.fee_pct),
         symbol=symbol,
         qty=qty,
         entry=price,

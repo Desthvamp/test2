@@ -35,6 +35,7 @@ function render(s){
   const now = Date.now() / 1000, st = s.status || {}, warn = [];
   if (now - s.saved_at > 120) warn.push('⚠ Der Bot läuft nicht mehr. Letztes Lebenszeichen vor ' + ago(now - s.saved_at) + '.');
   else if (st.price_ts && now - st.price_ts > 120) warn.push('⚠ Seit ' + ago(now - st.price_ts) + ' kein neuer Kurs. Offene Positionen werden gerade nicht überwacht.');
+  if (s.lock) warn.push('⚠ ' + s.lock);
   if (s.kill_switch) warn.push('⚠ Not-Aus ist aktiv: keine Käufe, offene Positionen werden verkauft.');
   if (s.halted) warn.push('⚠ ' + s.halt_reason + '. Heute keine neuen Käufe.');
   $('warn').style.display = warn.length ? 'block' : 'none';
@@ -61,8 +62,9 @@ function render(s){
 
   const ps = Object.values(s.positions).map(p => {
     const val = p.qty * (st.price || p.entry), chg = (st.price || p.entry) / p.entry - 1;
+    const onExchange = ((s.resume || {}).stops || {})[p.symbol];
     return p.symbol + ': ' + p.qty.toFixed(6) + ' (Wert ' + eur(val) + ', ' + pct(chg) + ' seit Kauf)\n' +
-      'Einstieg ' + eur(p.entry) + '\nStop     ' + eur(p.stop) + (p.trailing_active ? '  (nachgezogen)' : '') + '\nZiel     ' + eur(p.take_profit);
+      'Einstieg ' + eur(p.entry) + '\nStop     ' + eur(p.stop) + (p.trailing_active ? '  (nachgezogen)' : '') + (onExchange ? '  · liegt als Order bei Kraken' : '') + '\nZiel     ' + eur(p.take_profit);
   });
   $('pos').textContent = ps.join('\n\n') || 'keine';
   const ts = s.trades.map(t => (t.side == 'buy' ? 'KAUF    ' : 'VERKAUF ') + t.qty.toFixed(6) + ' @ ' + eur(t.price) + '  (Gebühr ' + eur(t.fee) + ')');

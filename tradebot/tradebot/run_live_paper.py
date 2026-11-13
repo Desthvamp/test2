@@ -100,7 +100,10 @@ class Runner:
             self.last_price = price
             e.start_day(time.strftime("%Y-%m-%d", time.localtime(now)),
                         e.broker.equity({e.cfg.symbol: price}))
-            e.tick(price, news, now, self.fg)
+            try:
+                e.tick(price, news, now, self.fg)
+            except Exception as err:   # ein unerwarteter Fehler darf den Bot nicht beenden
+                e._say(f"Interner Fehler ({type(err).__name__}: {err}), weiter beim nächsten Kurs")
             e.status = {"price": price, "price_ts": now, "news": news,
                         "news_info": self.news.info() if fresh else "", "fear_greed": self.fg}
             ok = sum(c.ok for c in e.signal)
