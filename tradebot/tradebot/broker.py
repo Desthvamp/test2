@@ -41,13 +41,3 @@ class PaperBroker:
             del self.holdings[symbol]
         self.trades.append({"side": "sell", "symbol": symbol, "qty": qty, "price": price, "fee": fee})
         return proceeds - fee
-
-
-class BitpandaBroker:
-    """Platzhalter. Live-Handel ist absichtlich nicht implementiert, bis die
-    Bitpanda-API-Doku geprueft und ein Sandbox-/Testzugang getestet ist."""
-
-    def __init__(self, *args, **kwargs):
-        raise NotImplementedError(
-            "Bitpanda-Anbindung ist noch nicht implementiert (API-Doku nicht verifiziert)."
-        )

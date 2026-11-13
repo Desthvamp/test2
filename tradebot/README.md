@@ -13,8 +13,8 @@ Live-Handel ist nicht implementiert.
 
 ## Noch offen (bewusst)
 - Echte Kursdaten und echte Nachrichten-Feeds: `run_paper.py` nutzt aktuell Zufallskurse
-- Bitpanda-Anbindung: `BitpandaBroker` wirft absichtlich `NotImplementedError`. Die Bitpanda-API-Doku
-  war aus der Entwicklungsumgebung nicht erreichbar; sie muss gegen die offizielle Doku geprueft werden.
+- Bitpanda: `bitpanda.py` ist gegen die offizielle Doku gebaut (nur Quotes, keine Stop-Orders,
+  Tageslimit am API-Key Pflicht). Nur mit simulierten Antworten getestet, noch kein Live-Starter.
 - Android: Das Dashboard ist eine Web-Seite, die man auf dem Tablet aufrufen kann. Eine native App ist nicht gebaut.
 - Dauerbetrieb: Der Bot muss auf einem Rechner/Server laufen, der 24/7 an ist. Eine Sandbox-Session
   reicht dafuer nicht.
