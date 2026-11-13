@@ -63,8 +63,7 @@ def main() -> None:
             engine._say(f"Kurs {last_price:.2f} | News {news:+.2f} | Fear&Greed {fg}")
         except Exception as e:  # Datenfehler -> nichts tun, nur loggen
             engine._say(f"Tick uebersprungen: {e}")
-        if last_price:
-            engine.save(last_price)
+        engine.save(last_price)  # auch ohne Kurs speichern, damit Fehler im Dashboard sichtbar sind
         time.sleep(PRICE_EVERY)
 
 
