@@ -146,3 +146,21 @@ def test_log_echo_and_dedupe(tmp_path):
     e = mk(tmp_path, on_log=seen.append)
     e._say("hallo"); e._say("hallo"); e._say("nur terminal", log=False)
     assert len(seen) == 3 and len(e.log) == 1 and e.log[0].endswith("hallo")
+
+
+def test_restore_state_from_older_version_without_cost(tmp_path):
+    import json
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    e.save(101.0)
+    d = json.loads((tmp_path / "s.json").read_text())
+    del d["resume"]["stops"]
+    for p in d["resume"]["positions"].values():
+        del p["cost"]
+    (tmp_path / "s.json").write_text(json.dumps(d))
+    e2 = mk(tmp_path)
+    assert e2.restore()
+    assert e2.positions["BTC-EUR"].cost == pytest.approx(e.positions["BTC-EUR"].cost)
+    e2.tick(95.5, 0.0, now=t + 60)
+    assert "Ergebnis -" in e2.log[-1] and float(e2.log[-1].split("Ergebnis ")[1].split()[0]) > -2.5

@@ -200,6 +200,8 @@ class Engine:
             cash, start = float(r["cash"]), float(r["start_equity"])
             holdings = {str(k): float(v) for k, v in r["holdings"].items()}
             positions = {str(k): Position(**v) for k, v in r["positions"].items()}
+            for pos in positions.values():   # Stand aus einer älteren Version ohne Kaufkosten
+                pos.cost = pos.cost or pos.qty * pos.entry * (1 + self.risk_cfg.fee_pct)
             trades = list(r["trades"])
             stops = {str(k): dict(v) for k, v in r.get("stops", {}).items()}
             history = [(float(t), float(p)) for t, p in r["history"]]
