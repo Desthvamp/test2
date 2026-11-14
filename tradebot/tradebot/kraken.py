@@ -119,7 +119,7 @@ class KrakenBroker:
         self.cash = start_cash
         self.holdings: dict[str, float] = {}
         self.trades: list[dict] = []
-        self.stops: dict[str, dict] = {}        # symbol -> {"txid": ..., "price": ...}
+        self.stops: dict[str, dict] = {}        # symbol -> {"txid": ..., "price": ..., "qty": ...}
         self.max_order_eur = start_cash if max_order_eur is None else max_order_eur
         self.max_buy_slippage, self.min_stop_step = max_buy_slippage, min_stop_step
         self.sleep, self.poll_tries, self.poll_wait = sleep, poll_tries, poll_wait
@@ -247,13 +247,18 @@ class KrakenBroker:
         if held < self.min_qty:
             return
         cur = self.stops.get(symbol)
+        price, volume = self._p(stop_price), self._q(held)
         if cur is None:
-            txid = self._order("Stop-Loss", type="sell", ordertype="stop-loss",
-                               price=self._p(stop_price), volume=self._q(held))
-            self.stops[symbol] = {"txid": txid, "price": float(self._p(stop_price))}
-        elif stop_price >= cur["price"] * (1 + self.min_stop_step):   # nur nach oben, nicht bei jedem Cent
-            self.c.read("AmendOrder", txid=cur["txid"], trigger_price=self._p(stop_price))
-            cur["price"] = float(self._p(stop_price))
+            txid = self._order("Stop-Loss", type="sell", ordertype="stop-loss", price=price, volume=volume)
+            self.stops[symbol] = {"txid": txid, "price": float(price), "qty": float(volume)}
+        elif abs(cur.get("qty", 0.0) - float(volume)) > 10 ** -self.qty_decimals:
+            # Die Position hat sich geändert (Nachkauf): Menge und Stop-Kurs der Order angleichen.
+            # Nur hier darf der Stop auch nach unten wandern.
+            self.c.read("AmendOrder", txid=cur["txid"], order_qty=volume, trigger_price=price)
+            cur.update(price=float(price), qty=float(volume))
+        elif stop_price >= cur["price"] * (1 + self.min_stop_step):   # sonst nur nach oben, nicht bei jedem Cent
+            self.c.read("AmendOrder", txid=cur["txid"], trigger_price=price)
+            cur["price"] = float(price)
 
     def sync(self, symbol: str) -> Fill | None:
         return self._settle_stop(symbol, cancel=False)

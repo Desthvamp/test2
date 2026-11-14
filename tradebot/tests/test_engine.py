@@ -184,3 +184,75 @@ def test_fear_still_needs_price_turning_up(tmp_path):
     assert not e.positions
     assert any("zählen bei extremer Angst nicht" in c.text and c.ok for c in e.signal)
     assert any("Trend" in c.text and not c.ok for c in e.signal)
+
+
+# ---------- Nachkauf ----------
+
+def dip_and_turn(e, t, tick=None):
+    """Nach dem Kauf zu 101: Kurs fällt auf 97, bleibt dort, dreht dann auf 97.5. Gibt die nächste Zeit zurück."""
+    tick = tick or (lambda p, now: e.tick(p, 0.9, now=now, fear_greed=50))
+    for p in [99.0] + [97.0] * 17:
+        tick(p, t)
+        t += 60
+        assert e.positions["BTC-EUR"].adds == 0          # fällt oder steht: noch kein Nachkauf
+    tick(97.5, t)
+    return t + 60
+
+
+def test_add_after_dip_once_price_turns_up(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    first = e.positions["BTC-EUR"].qty
+    spent = 100.0 - e.broker.cash
+    t = dip_and_turn(e, t + 60)
+    pos = e.positions["BTC-EUR"]
+    assert pos.adds == 1 and "NACHKAUF" in e.log[-1]
+    assert pos.qty == pytest.approx(first + first * 101.0 / 97.5)          # gleicher Euro-Betrag
+    assert 100.0 - e.broker.cash == pytest.approx(2 * spent, rel=1e-3) == pytest.approx(pos.cost, rel=1e-3)
+    assert 97.5 < pos.entry < 101.0                                         # Durchschnittskurs
+    assert pos.stop == pytest.approx(pos.entry * 0.95) and pos.take_profit == pytest.approx(pos.entry * 1.10)
+    assert "Nachkauf schon erfolgt" in e.signal[0].text
+
+
+def test_add_happens_only_once_and_loss_stays_bounded(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    t = dip_and_turn(e, t + 60)
+    for p in [96.0] * 17 + [96.1]:                       # wieder tiefer und wieder Dreh: kein zweiter Nachkauf
+        e.tick(p, 0.9, now=t, fear_greed=50)
+        t += 60
+    assert e.positions["BTC-EUR"].adds == 1 and len(e.broker.trades) == 2
+    e.tick(94.0, 0.9, now=t, fear_greed=50)              # Stop (rund 94.26) greift für die ganze Position
+    assert not e.positions and "Stop-Loss" in e.log[-1]
+    assert 95.5 < e.broker.cash < 96.2                   # rund 4 EUR Verlust, nicht mehr
+
+
+def test_add_then_recovery_takes_profit_from_average(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    t = dip_and_turn(e, t + 60)
+    e.tick(109.5, 0.9, now=t, fear_greed=50)             # +10 % über dem Schnitt von rund 99.2
+    assert not e.positions and "Gewinnmitnahme" in e.log[-1] and e.broker.cash > 104.5
+
+
+@pytest.mark.parametrize("block", ["off", "halted", "lock", "no_cash"])
+def test_add_is_blocked(tmp_path, block):
+    from tradebot.risk import RiskConfig
+    e = mk(tmp_path, risk_cfg=RiskConfig(max_adds=0)) if block == "off" else mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    t += 60
+    for p in [99.0] + [97.0] * 17:
+        e.tick(p, 0.9, now=t, fear_greed=50)
+        t += 60
+    if block == "halted":
+        e.risk.halted, e.risk.reason = True, "Test"
+    if block == "lock":
+        e.lock = "Test"
+    if block == "no_cash":
+        e.broker.cash = 0.5
+    e.tick(97.5, 0.9, now=t, fear_greed=50)
+    assert e.positions["BTC-EUR"].adds == 0 and len(e.broker.trades) == 1

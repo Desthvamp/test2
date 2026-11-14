@@ -1,7 +1,7 @@
 import pytest
 
 from fake_kraken import SECRET, FakeKraken
-from test_engine import warm
+from test_engine import dip_and_turn, warm
 from tradebot.broker import BrokerError, BrokerUncertain
 from tradebot.engine import Engine, EngineConfig
 from tradebot.kraken import KrakenBroker, KrakenClient, sign
@@ -279,3 +279,36 @@ def test_check_tool_reports_missing_permission():
     assert not check(fake.client(), out=lines.append)
     assert any(x.startswith("✗ Konto lesen") and "Permission denied" in x for x in lines)
     assert not fake.orders
+
+
+# ---------- Nachkauf mit Kraken ----------
+
+def test_stop_order_follows_added_volume():
+    fake = FakeKraken()
+    b = broker(fake)
+    b.buy(S, 0.3, 100.0)
+    b.set_stop(S, 95.0)
+    fake.set_price(97.0)
+    b.buy(S, 0.3, 97.0)
+    b.set_stop(S, 93.6)                                  # nach Nachkauf: mehr Menge, Stop tiefer
+    (stop,) = fake.open_stops()
+    assert (stop["vol"], stop["descr"]["price"]) == ("0.60000000", "93.6")
+    assert fake.sent("AmendOrder")[-1] == {**fake.sent("AmendOrder")[-1], "order_qty": "0.60000000", "trigger_price": "93.6"}
+    b.set_stop(S, 90.0)                                  # ohne Mengenänderung nie nach unten
+    assert stop["descr"]["price"] == "93.6" and len(fake.sent("AmendOrder")) == 1
+
+
+def test_engine_add_resizes_stop_on_exchange_and_exchange_closes_all(tmp_path):
+    fake = FakeKraken()
+    e, t = bought(tmp_path, fake)
+    t = dip_and_turn(e, t, tick=lambda p, now: tick(e, fake, p, now))
+    pos = e.positions[S]
+    assert pos.adds == 1
+    (stop,) = fake.open_stops()                          # weiterhin genau eine Stop-Order
+    assert float(stop["vol"]) == pytest.approx(pos.qty, abs=1e-8) == pytest.approx(fake.btc, abs=1e-8)
+    assert stop["descr"]["price"] == f"{pos.stop:.1f}"
+    fake.trigger_stop()
+    tick(e, fake, 94.0, t)
+    assert not e.positions and not fake.open_stops() and fake.btc == pytest.approx(0, abs=1e-8)
+    assert e.broker.cash - 100 == pytest.approx(fake.eur - 500, abs=1e-3)
+    assert -4.4 < e.broker.cash - 100 < -3.8             # rund 4 EUR Verlust

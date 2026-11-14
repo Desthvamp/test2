@@ -25,8 +25,11 @@ Gekauft wird nur, wenn alle Bedingungen gleichzeitig erfüllt sind (`strategy.py
 Verkauft wird bei Stop-Loss (−5 %), Gewinnmitnahme (+10 %), nachgezogenem Stop (ab +6 % Gewinn folgt der Stop
 dem Kurs mit 3 % Abstand) oder Not-Aus (Datei `KILL` im Ordner `tradebot` anlegen).
 
-Risiko (`risk.py`): pro Trade höchstens 2 % des Kapitals Verlust inklusive Gebühren, ab −5 % Tagesverlust
-keine neuen Käufe. Gebühr im Paper-Modus: 0,8 % je Kauf und Verkauf (Kraken, niedrigster Tarif, Stand November 2026).
+Nachkauf: Liegt der Kurs mindestens 3 % unter dem Einstieg und steigt wieder (höher als vor 15 Minuten), kauft
+der Bot einmal für denselben Betrag nach. Stop, Ziel und Trailing gelten danach ab dem Durchschnittskurs.
+
+Risiko (`risk.py`): pro Position höchstens 2 % des Kapitals Verlust inklusive Gebühren, nach einem Nachkauf
+rund 4 %. Ab −5 % Tagesverlust keine neuen Käufe und keine Nachkäufe. Gebühr im Paper-Modus: 0,8 % je Kauf und Verkauf (Kraken, niedrigster Tarif, Stand November 2026).
 
 **Alle Schwellen sind Faustwerte und nicht an historischen Daten geprüft.** Die Nachrichten-Stimmung ist eine
 einfache Schlüsselwort-Zählung in englischen Schlagzeilen, keine KI.

@@ -64,7 +64,7 @@ function render(s){
     const val = p.qty * (st.price || p.entry), chg = (st.price || p.entry) / p.entry - 1;
     const onExchange = ((s.resume || {}).stops || {})[p.symbol];
     return p.symbol + ': ' + p.qty.toFixed(6) + ' (Wert ' + eur(val) + ', ' + pct(chg) + ' seit Kauf)\n' +
-      'Einstieg ' + eur(p.entry) + '\nStop     ' + eur(p.stop) + (p.trailing_active ? '  (nachgezogen)' : '') + (onExchange ? '  · liegt als Order bei Kraken' : '') + '\nZiel     ' + eur(p.take_profit);
+      'Einstieg ' + eur(p.entry) + (p.adds ? '  (Durchschnitt nach Nachkauf)' : '') + '\nStop     ' + eur(p.stop) + (p.trailing_active ? '  (nachgezogen)' : '') + (onExchange ? '  · liegt als Order bei Kraken' : '') + '\nZiel     ' + eur(p.take_profit);
   });
   $('pos').textContent = ps.join('\n\n') || 'keine';
   const ts = s.trades.map(t => (t.side == 'buy' ? 'KAUF    ' : 'VERKAUF ') + t.qty.toFixed(6) + ' @ ' + eur(t.price) + '  (Gebühr ' + eur(t.fee) + ')');

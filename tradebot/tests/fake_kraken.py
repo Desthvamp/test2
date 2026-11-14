@@ -139,7 +139,13 @@ class FakeKraken:
         o = self.orders.get(d["txid"])
         if not o or o["status"] != "open":
             raise Err("EOrder:Unknown order")
-        o["descr"]["price"] = d["trigger_price"]
+        if "order_qty" in d:
+            vol = float(d["order_qty"])
+            if self._free_btc() + o["_vol"] < vol - 1e-12:
+                raise Err("EOrder:Insufficient funds")
+            o["vol"], o["_vol"] = d["order_qty"], vol
+        if "trigger_price" in d:
+            o["descr"]["price"] = d["trigger_price"]
         return {"amend_id": "ATEST-1"}
 
     # --- Testhilfen ---

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from .broker import BrokerError, BrokerUncertain, Fill, PaperBroker
-from .risk import (Position, RiskConfig, RiskState, check_daily_limit,
+from .risk import (Position, RiskConfig, RiskState, add_to_position, check_daily_limit,
                    open_position, position_size, update_position)
 from .strategy import Check, StrategyConfig, entry_signal
 
@@ -60,6 +60,35 @@ class Engine:
         del self.positions[symbol]
         self.last_exit_ts = now
         self._say(f"VERKAUF {symbol} @ {fill.price:.2f} ({label}), Ergebnis {result:+.2f} EUR nach Gebühren")
+
+    def _add_hint(self, pos: Position) -> str:
+        if pos.adds >= self.risk_cfg.max_adds:
+            return "Position offen, Nachkauf schon erfolgt" if pos.adds else "Position offen, kein weiterer Kauf"
+        level = pos.entry * (1 - self.risk_cfg.add_drop_pct)
+        return f"Position offen. Nachkauf, wenn der Kurs unter {level:.2f} liegt und wieder steigt"
+
+    def _maybe_add(self, pos: Position, price: float, now: float) -> None:
+        """Nachkauf: Kurs deutlich unter dem Einstieg UND höher als vor einer Viertelstunde.
+        Gleicher Euro-Betrag wie beim ersten Kauf. Stop und Ziel gelten danach ab dem Durchschnittskurs."""
+        cfg = self.risk_cfg
+        if pos.adds >= cfg.max_adds or pos.trailing_active or price > pos.entry * (1 - cfg.add_drop_pct):
+            return
+        past = [p for t, p in self.history if t <= now - self.strat_cfg.momentum_lookback_s]
+        if not past or price <= past[-1]:
+            return          # fällt noch: nicht ins fallende Messer greifen
+        qty = min(pos.qty * pos.entry / price, self.broker.cash / (price * (1 + cfg.fee_pct)))
+        if qty * price < 1:
+            return
+        try:
+            fill = self.broker.buy(pos.symbol, qty, price)
+        except BrokerUncertain:
+            raise
+        except BrokerError as err:
+            self._say(f"Nachkauf abgelehnt: {err}")
+            return
+        add_to_position(pos, fill.qty, fill.price, fill.total, cfg)
+        self._say(f"NACHKAUF {pos.symbol} {fill.qty:.6f} @ {fill.price:.2f} (= {fill.qty * fill.price:.2f} EUR), "
+                  f"neuer Schnitt {pos.entry:.2f}, Stop {pos.stop:.2f}, Ziel {pos.take_profit:.2f}")
 
     def _uncertain(self, err: Exception) -> None:
         self.lock = str(err)
@@ -114,7 +143,9 @@ class Engine:
                     if reason:
                         self._close(pos, self.broker.sell(symbol, pos.qty, price), reason, now)
                     else:
-                        self.broker.set_stop(symbol, pos.stop)   # anlegen bzw. nach oben nachziehen
+                        if not (kill or self.lock or self.risk.halted):
+                            self._maybe_add(pos, price, now)
+                        self.broker.set_stop(symbol, pos.stop)   # anlegen, nachziehen, an Nachkauf anpassen
             except BrokerUncertain as err:
                 self._uncertain(err)
             except BrokerError as err:
@@ -128,7 +159,9 @@ class Engine:
             blocked = f"Gestoppt: {self.risk.reason}"
         elif kill:
             blocked = "Not-Aus aktiv"
-        elif symbol in self.positions or len(self.positions) >= self.risk_cfg.max_open_positions:
+        elif symbol in self.positions:
+            blocked = self._add_hint(self.positions[symbol])
+        elif len(self.positions) >= self.risk_cfg.max_open_positions:
             blocked = "Position offen, kein weiterer Kauf"
         if blocked:
             self.signal = [Check(False, blocked)]
@@ -150,7 +183,7 @@ class Engine:
             self._say(f"Kauf abgelehnt: {err}")
             return
         pos = self.positions[symbol] = open_position(symbol, fill.qty, fill.price, self.risk_cfg, cost=fill.total)
-        self.signal = [Check(False, "Position offen, kein weiterer Kauf")]
+        self.signal = [Check(False, self._add_hint(pos))]
         self._say(f"KAUF {symbol} {fill.qty:.6f} @ {fill.price:.2f} (= {fill.qty * fill.price:.2f} EUR), "
                   f"Stop {pos.stop:.2f}, Ziel {pos.take_profit:.2f}")
         try:

@@ -14,6 +14,8 @@ class RiskConfig:
     trail_distance_pct: float = 0.03   # Abstand des Trailing-Stops zum Hoch
     max_daily_loss_pct: float = 0.05   # Tagesverlust, ab dem nichts mehr eroeffnet wird
     max_open_positions: int = 1
+    max_adds: int = 1                  # so oft darf pro Position nachgekauft werden (0 = aus)
+    add_drop_pct: float = 0.03         # Nachkauf erst, wenn der Kurs so weit unter dem Einstieg liegt
     fee_pct: float = 0.008             # Gebühr je Kauf/Verkauf: Kraken Taker, niedrigster Tarif
 
 
@@ -27,6 +29,7 @@ class Position:
     take_profit: float
     trailing_active: bool = False
     cost: float = 0.0   # bezahlter Betrag inklusive Kaufgebühr
+    adds: int = 0       # Zahl der Nachkäufe; `entry` ist dann der Durchschnittskurs
 
 
 @dataclass
@@ -58,6 +61,17 @@ def open_position(symbol: str, qty: float, price: float, cfg: RiskConfig, cost: 
         stop=price * (1 - cfg.stop_loss_pct),
         take_profit=price * (1 + cfg.take_profit_pct),
     )
+
+
+def add_to_position(pos: Position, qty: float, price: float, cost: float, cfg: RiskConfig) -> None:
+    """Nachkauf verbuchen: Durchschnittskurs neu, Stop und Ziel beziehen sich danach auf diesen Schnitt.
+    Der Stop rutscht dadurch nach unten; das ist die einzige Stelle, an der das passiert."""
+    pos.entry = (pos.qty * pos.entry + qty * price) / (pos.qty + qty)
+    pos.qty += qty
+    pos.cost += cost
+    pos.adds += 1
+    pos.stop = pos.entry * (1 - cfg.stop_loss_pct)
+    pos.take_profit = pos.entry * (1 + cfg.take_profit_pct)
 
 
 def update_position(pos: Position, price: float, cfg: RiskConfig) -> str | None:
