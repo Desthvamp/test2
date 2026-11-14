@@ -91,3 +91,23 @@ def test_parse_kraken_and_fear_greed():
     assert parse_fear_greed(json.dumps({"data": [{"value": "18"}]}).encode()) == 18
     with pytest.raises(DataError):
         parse_fear_greed(json.dumps({"data": [{"value": "150"}]}).encode())
+
+
+def test_real_headlines_from_november_2026():
+    """Echte Schlagzeilen (Cointelegraph/CoinDesk, 14.11.2026). Erwartet wird nur das Vorzeichen."""
+    negative = [
+        "Bitcoin plunges to $68,000 as Anthropic IPO frenzy adds to market jitters",
+        "Bitcoin slides below $70K amid thin liquidity, ETF outflows",
+        "Bitcoin ETFs shed $2.35B in 2 weeks, BlackRock’s losing streak hits 11",
+        "Bitcoin dips below $70,000 as Dollar Index hits 19-month high",
+        "Gemini’s quarterly retail trading volume sinks to 3-year low",
+        "Unocoin keeps deposits and withdrawals halted over suspect transfers",
+        # frueher faelschlich positiv wegen 'rally':
+        "Live updates: Bitcoin eyes bear market lows as late summer rally mostly wiped out",
+    ]
+    positive = ["Jane Street boosts Fidelity Bitcoin ETF holdings nearly 8x, trims IBIT"]
+    neutral = ["Trump nominates Hester Peirce successor among SEC, CFTC picks",
+               "DTCC adds Solana to Wall Street tokenization plans, targeting 2027 rollout"]
+    assert all(score_text(h) < 0 for h in negative), [h for h in negative if score_text(h) >= 0]
+    assert all(score_text(h) > 0 for h in positive)
+    assert all(score_text(h) == 0 for h in neutral)

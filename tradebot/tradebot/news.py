@@ -13,12 +13,15 @@ from dataclasses import dataclass
 _POS = [r"surg\w*", r"soar\w*", r"rall(?:y|ies|ied|ying)", r"rebound\w*", r"recover\w*", r"jump\w*",
         r"climb\w*", r"gain\w*", r"rises?", r"rose", r"rising", r"breakout\w*", r"bullish", r"approv\w*",
         r"adopt\w*", r"inflows?", r"upgrad\w*", r"partner\w*", r"accumulat\w*", r"outperform\w*",
-        r"all-time high", r"record high", r"new high", r"buys"]
+        r"all-time high", r"record high", r"new high", r"buys", r"boost\w*", r"bull market", r"bull run",
+        r"wins?"]
 _NEG = [r"hack\w*", r"exploit\w*", r"ban(?:s|ned)?", r"lawsuit\w*", r"sue[sd]?", r"crash\w*", r"plung\w*",
         r"plummet\w*", r"slump\w*", r"tumbl\w*", r"sell-?off\w*", r"outflows?", r"bearish", r"liquidat\w*",
         r"fraud\w*", r"scam\w*", r"delist\w*", r"bankrupt\w*", r"insolven\w*", r"collaps\w*", r"panic\w*",
         r"crackdown\w*", r"dump\w*", r"drop(?:s|ped)?", r"falls?", r"fell", r"falling", r"declin\w*",
-        r"loss(?:es)?", r"warn\w*", r"fears?"]
+        r"loss(?:es)?", r"warn\w*", r"fears?", r"slid\w*", r"slip(?:s|ped)?", r"sinks?", r"sank", r"sinking",
+        r"dip(?:s|ped)?", r"sheds?", r"shedding", r"wipe[sd]? out", r"eras\w*", r"losing streak", r"bear market",
+        r"halt\w*", r"suspend\w*"]
 POS_RE = re.compile(r"\b(?:" + "|".join(_POS) + r")\b")
 NEG_RE = re.compile(r"\b(?:" + "|".join(_NEG) + r")\b")
 MIN_SIGNAL = 3
