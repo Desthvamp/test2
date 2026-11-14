@@ -44,6 +44,7 @@ class Engine:
         self.start_equity = self.broker.cash
         self._last_msg = ""
         self.lock = ""   # gesetzt, wenn der Zustand an der Börse unklar ist; nur ein Neustart hebt das auf
+        self.rearm = False   # nach einem Verkauf: erst wieder kaufen, wenn das Signal einmal aus war
 
     def _close(self, pos: Position, fill: Fill, reason: str, now: float) -> None:
         """Verbucht einen Verkauf in der Position und meldet das Ergebnis."""
@@ -59,6 +60,7 @@ class Engine:
             return
         del self.positions[symbol]
         self.last_exit_ts = now
+        self.rearm = True
         self._say(f"VERKAUF {symbol} @ {fill.price:.2f} ({label}), Ergebnis {result:+.2f} EUR nach Gebühren")
 
     def _add_hint(self, pos: Position) -> str:
@@ -169,6 +171,11 @@ class Engine:
         sig = entry_signal(self.history, price, news, fear_greed, now, self.last_exit_ts, self.strat_cfg)
         self.signal = sig.checks
         if not sig.buy:
+            self.rearm = False
+            return
+        if self.rearm:
+            # Ohne das würde der Bot im selben Moment zum selben Kurs zurückkaufen und nur Gebühren zahlen.
+            self.signal = sig.checks + [Check(False, "Nach dem Verkauf muss das Kaufsignal erst einmal erlöschen")]
             return
         qty = position_size(equity, price, self.risk_cfg)
         qty = min(qty, self.broker.cash / (price * (1 + self.risk_cfg.fee_pct)))
@@ -218,6 +225,7 @@ class Engine:
                 "trades": self.broker.trades[-500:],
                 "history": [list(x) for x in self.history],
                 "last_exit_ts": self.last_exit_ts,
+                "rearm": self.rearm,
                 "day": self.day,
                 "day_start_equity": self.risk.day_start_equity,
                 "halted": self.risk.halted,
@@ -239,6 +247,7 @@ class Engine:
             stops = {str(k): dict(v) for k, v in r.get("stops", {}).items()}
             history = [(float(t), float(p)) for t, p in r["history"]]
             last_exit = float(r["last_exit_ts"])
+            rearm = bool(r.get("rearm", False))
             risk = RiskState(day_start_equity=float(r["day_start_equity"]),
                              halted=bool(r["halted"]), reason=str(r["halt_reason"]))
             day = str(r["day"])
@@ -249,7 +258,7 @@ class Engine:
         self.broker.cash, self.broker.holdings, self.broker.trades = cash, holdings, trades
         self.broker.stops = stops
         self.positions, self.history, self.risk, self.day = positions, history, risk, day
-        self.start_equity, self.last_exit_ts = start, last_exit
+        self.start_equity, self.last_exit_ts, self.rearm = start, last_exit, rearm
         return True
 
     def save(self, price: float) -> None:

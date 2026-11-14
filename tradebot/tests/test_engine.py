@@ -72,15 +72,29 @@ def test_no_buy_when_price_below_average_or_falling(tmp_path):
     assert not e2.positions
 
 
-def test_cooldown_after_exit(tmp_path):
+def test_no_pause_after_exit_by_default(tmp_path):
     e = mk(tmp_path)
     t = warm(e)
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     e.tick(95.5, 0.9, now=t + 60, fear_greed=50)        # Stop-Loss (Stop liegt bei 95.95)
     assert not e.positions and "Stop-Loss" in e.log[-1] and "Ergebnis -" in e.log[-1]
     assert 97.8 < e.broker.cash < 98.1 and not e.risk.halted   # rund 2 % Verlust, kein Tageslimit
-    t = warm(e, minutes=70, price=95.5, start=t + 120)  # alte, hoehere Kurse fallen aus dem Stundenfenster
-    e.tick(96.5, 0.9, now=t, fear_greed=50)             # Signal waere gut, aber Pause
+    assert not any("Pause" in c.text for c in e.signal)
+    e.tick(95.6, 0.9, now=t + 120, fear_greed=50)       # direkt danach: Kurs liegt unter dem Schnitt -> kein Kauf
+    assert not e.positions
+    t = warm(e, minutes=70, price=95.5, start=t + 180)  # alte, höhere Kurse fallen aus dem Stundenfenster
+    e.tick(96.5, 0.9, now=t, fear_greed=50)             # gut eine Stunde später dreht der Kurs -> wieder Kauf
+    assert "BTC-EUR" in e.positions
+
+
+def test_pause_can_be_configured(tmp_path):
+    from tradebot.strategy import StrategyConfig
+    e = mk(tmp_path, strat_cfg=StrategyConfig(cooldown_s=6 * 3600))
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    e.tick(95.5, 0.9, now=t + 60, fear_greed=50)
+    t = warm(e, minutes=70, price=95.5, start=t + 120)
+    e.tick(96.5, 0.9, now=t, fear_greed=50)             # Signal wäre gut, aber Pause
     assert not e.positions and any("Pause" in c.text and not c.ok for c in e.signal)
     assert all(c.ok for c in e.signal if "Pause" not in c.text)
     t = warm(e, minutes=40, price=95.5, start=t + 6 * 3600)
@@ -256,3 +270,31 @@ def test_add_is_blocked(tmp_path, block):
         e.broker.cash = 0.5
     e.tick(97.5, 0.9, now=t, fear_greed=50)
     assert e.positions["BTC-EUR"].adds == 0 and len(e.broker.trades) == 1
+
+
+def test_no_instant_rebuy_after_sale_but_no_fixed_pause(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    e.tick(112.0, 0.9, now=t + 60, fear_greed=50)       # Gewinnmitnahme; Signal ist weiter "an"
+    assert not e.positions and e.rearm
+    assert any("erst einmal erlöschen" in c.text for c in e.signal)
+    t += 120
+    for _ in range(16):                                 # Kurs steht: nach 15 Min ist das Momentum weg
+        e.tick(112.0, 0.9, now=t, fear_greed=50)
+        t += 60
+    assert not e.positions and not e.rearm              # Signal war aus -> wieder scharf
+    e.tick(113.0, 0.9, now=t, fear_greed=50)            # neues Signal, gut eine Viertelstunde nach dem Verkauf
+    assert "BTC-EUR" in e.positions
+
+
+def test_rearm_survives_restart(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    e.tick(112.0, 0.9, now=t + 60, fear_greed=50)
+    e.save(112.0)
+    e2 = mk(tmp_path)
+    assert e2.restore() and e2.rearm
+    e2.tick(112.5, 0.9, now=t + 120, fear_greed=50)
+    assert not e2.positions

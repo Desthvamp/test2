@@ -8,7 +8,8 @@ Gekauft wird nur, wenn ALLE Bedingungen erfüllt sind:
 5. Nachrichten: Stimmung über der Schwelle. Bei extremer Angst (Fear&Greed niedrig) zählen die
    Nachrichten NICHT: dann kauft der Bot, sobald der Kurs dreht. Das ist die bewusste Wette
    "in der Angst kaufen". Sie kauft auch kurze Erholungen in einem fallenden Markt.
-6. keine Pause nach einem Verkauf (verhindert ständiges Rein-Raus, das nur Gebühren kostet)
+Eine feste Pause nach einem Verkauf gibt es standardmäßig nicht (cooldown_s = 0). Die Engine verlangt
+nur, dass das Signal nach einem Verkauf einmal erlischt, bevor wieder gekauft wird.
 
 Die Schwellen sind Faustwerte und NICHT durch Tests an historischen Daten belegt."""
 from __future__ import annotations
@@ -27,7 +28,7 @@ class StrategyConfig:
     fear_level: int = 25                # Fear&Greed <= 25 = extreme Angst
     fear_ignores_news: bool = True      # bei extremer Angst zählen die Nachrichten nicht
     greed_level: int = 75               # Fear&Greed >= 75 = überhitzt, kein Kauf
-    cooldown_s: float = 6 * 3600        # Pause nach einem Verkauf
+    cooldown_s: float = 0.0             # Pause nach einem Verkauf in Sekunden (0 = keine)
 
 
 @dataclass
@@ -88,9 +89,10 @@ def entry_signal(history: list[tuple[float, float]], price: float, news: float |
         checks.append(Check(news >= cfg.news_threshold,
                             f"Nachrichten: {shown} (nötig mind. {cfg.news_threshold:+.2f})"))
 
-    wait = cfg.cooldown_s - (now - last_exit_ts) if last_exit_ts else 0.0
-    if wait > 0:
-        checks.append(Check(False, f"Pause nach Verkauf: noch {wait / 3600:.1f} Std"))
-    else:
-        checks.append(Check(True, "Pause nach Verkauf: keine"))
+    if cfg.cooldown_s > 0:
+        wait = cfg.cooldown_s - (now - last_exit_ts) if last_exit_ts else 0.0
+        if wait > 0:
+            checks.append(Check(False, f"Pause nach Verkauf: noch {wait / 3600:.1f} Std"))
+        else:
+            checks.append(Check(True, "Pause nach Verkauf: keine"))
     return Signal(checks)
