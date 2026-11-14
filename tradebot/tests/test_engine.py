@@ -42,12 +42,15 @@ def test_no_buy_before_enough_history(tmp_path):
 @pytest.mark.parametrize("news,fg,expect", [
     (0.9, 50, True),     # normale Lage, gute Nachrichten
     (0.1, 50, False),    # normale Lage, Nachrichten zu schwach
-    (0.0, 20, True),     # extreme Angst: neutrale Nachrichten reichen
-    (-0.3, 20, False),   # extreme Angst, aber negative Nachrichten
-    (0.9, 80, False),    # ueberhitzt
-    (None, 20, False),   # keine Nachrichten -> nie kaufen
+    (None, 50, False),   # normale Lage, keine Nachrichten -> nicht kaufen
+    (0.0, 20, True),     # extreme Angst: Nachrichten zählen nicht ...
+    (-0.8, 20, True),    # ... auch sehr schlechte nicht
+    (None, 20, True),    # ... auch fehlende nicht
+    (-0.8, 26, False),   # knapp über der Angst-Grenze gilt wieder die normale Schwelle
+    (0.9, 80, False),    # überhitzt
     (0.9, None, True),   # Fear&Greed fehlt -> normale Schwelle
     (0.1, None, False),
+    (-0.8, None, False),
 ])
 def test_entry_rules(tmp_path, news, fg, expect):
     e = mk(tmp_path)
@@ -164,3 +167,20 @@ def test_restore_state_from_older_version_without_cost(tmp_path):
     assert e2.positions["BTC-EUR"].cost == pytest.approx(e.positions["BTC-EUR"].cost)
     e2.tick(95.5, 0.0, now=t + 60)
     assert "Ergebnis -" in e2.log[-1] and float(e2.log[-1].split("Ergebnis ")[1].split()[0]) > -2.5
+
+
+def test_fear_rule_can_be_switched_off(tmp_path):
+    from tradebot.strategy import StrategyConfig
+    e = mk(tmp_path, strat_cfg=StrategyConfig(fear_ignores_news=False))
+    t = warm(e, news=-0.8, fg=20)
+    e.tick(101.0, -0.8, now=t, fear_greed=20)
+    assert not e.positions
+
+
+def test_fear_still_needs_price_turning_up(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e, news=-0.8, fg=13)
+    e.tick(99.5, -0.8, now=t, fear_greed=13)            # Kurs fällt weiter -> kein Kauf
+    assert not e.positions
+    assert any("zählen bei extremer Angst nicht" in c.text and c.ok for c in e.signal)
+    assert any("Trend" in c.text and not c.ok for c in e.signal)

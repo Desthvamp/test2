@@ -18,7 +18,8 @@ Gekauft wird nur, wenn alle Bedingungen gleichzeitig erfüllt sind (`strategy.py
 2. Trend: Kurs mindestens 0,3 % über dem Durchschnitt der letzten Stunde
 3. Momentum: Kurs höher als vor 15 Minuten
 4. Fear & Greed unter 75 (Markt nicht überhitzt)
-5. Nachrichten-Stimmung mindestens +0,2; bei extremer Angst (Fear & Greed bis 25) reicht „nicht negativ"
+5. Nachrichten-Stimmung mindestens +0,2; bei extremer Angst (Fear & Greed bis 25) zählen die Nachrichten nicht,
+   dann kauft der Bot, sobald der Kurs dreht (bewusste Wette, kauft auch Erholungen im fallenden Markt)
 6. keine Pause: nach jedem Verkauf wartet der Bot 6 Stunden
 
 Verkauft wird bei Stop-Loss (−5 %), Gewinnmitnahme (+10 %), nachgezogenem Stop (ab +6 % Gewinn folgt der Stop

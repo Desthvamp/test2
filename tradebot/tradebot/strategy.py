@@ -5,8 +5,9 @@ Gekauft wird nur, wenn ALLE Bedingungen erfüllt sind:
 2. Trend: Kurs liegt über seinem Durchschnitt der letzten Stunde
 3. Momentum: Kurs ist höher als vor 15 Minuten
 4. Fear&Greed: Markt ist nicht überhitzt
-5. Nachrichten: Stimmung über der Schwelle. Bei extremer Angst (Fear&Greed niedrig) reicht
-   "nicht negativ" - das ist die Wette "in der Angst kaufen, sobald der Kurs dreht".
+5. Nachrichten: Stimmung über der Schwelle. Bei extremer Angst (Fear&Greed niedrig) zählen die
+   Nachrichten NICHT: dann kauft der Bot, sobald der Kurs dreht. Das ist die bewusste Wette
+   "in der Angst kaufen". Sie kauft auch kurze Erholungen in einem fallenden Markt.
 6. keine Pause nach einem Verkauf (verhindert ständiges Rein-Raus, das nur Gebühren kostet)
 
 Die Schwellen sind Faustwerte und NICHT durch Tests an historischen Daten belegt."""
@@ -24,7 +25,7 @@ class StrategyConfig:
     momentum_lookback_s: float = 900
     news_threshold: float = 0.2
     fear_level: int = 25                # Fear&Greed <= 25 = extreme Angst
-    news_threshold_in_fear: float = 0.0
+    fear_ignores_news: bool = True      # bei extremer Angst zählen die Nachrichten nicht
     greed_level: int = 75               # Fear&Greed >= 75 = überhitzt, kein Kauf
     cooldown_s: float = 6 * 3600        # Pause nach einem Verkauf
 
@@ -68,20 +69,24 @@ def entry_signal(history: list[tuple[float, float]], price: float, news: float |
         checks.append(Check(False, "Momentum: noch zu wenig Daten"))
 
     fear = fear_greed is not None and fear_greed <= cfg.fear_level
+    skip_news = fear and cfg.fear_ignores_news
     if fear_greed is None:
         checks.append(Check(True, "Fear&Greed: nicht verfügbar, normale News-Schwelle"))
     elif fear_greed >= cfg.greed_level:
         checks.append(Check(False, f"Fear&Greed {fear_greed}: Markt überhitzt, kein Kauf"))
     elif fear:
-        checks.append(Check(True, f"Fear&Greed {fear_greed}: extreme Angst, News müssen nur nicht negativ sein"))
+        checks.append(Check(True, f"Fear&Greed {fear_greed}: extreme Angst"))
     else:
         checks.append(Check(True, f"Fear&Greed {fear_greed}: normal"))
 
-    need = cfg.news_threshold_in_fear if fear else cfg.news_threshold
-    if news is None:
+    shown = "nicht verfügbar" if news is None else f"{news:+.2f}"
+    if skip_news:
+        checks.append(Check(True, f"Nachrichten: {shown}, zählen bei extremer Angst nicht"))
+    elif news is None:
         checks.append(Check(False, "Nachrichten: nicht verfügbar, kein Kauf"))
     else:
-        checks.append(Check(news >= need, f"Nachrichten: {news:+.2f} (nötig mind. {need:+.2f})"))
+        checks.append(Check(news >= cfg.news_threshold,
+                            f"Nachrichten: {shown} (nötig mind. {cfg.news_threshold:+.2f})"))
 
     wait = cfg.cooldown_s - (now - last_exit_ts) if last_exit_ts else 0.0
     if wait > 0:
