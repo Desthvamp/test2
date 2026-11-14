@@ -19,6 +19,7 @@ from .broker import PaperBroker
 from .datasources import RSS_FEEDS, DataError, get_fear_greed, get_price
 from .engine import Engine, EngineConfig
 from .news import NewsSummary, fetch_headlines, summarize
+from .notify import Notifier
 from .risk import RiskConfig
 
 PRICE_EVERY = 30      # Sekunden zwischen Kursabfragen
@@ -75,9 +76,12 @@ class Runner:
     next_news_ts: float = 0.0
     fg: int | None = None
     last_price: float = 0.0
+    notifier: Notifier | None = None
 
     def step(self, now: float) -> None:
         e = self.engine
+        if self.notifier and (err := self.notifier.pop_error()):
+            e._say(err)
         if now >= self.next_news_ts:
             try:
                 self.news, self.news_ok_ts = self.news_fn(), now
@@ -130,7 +134,15 @@ def main() -> None:
     print(f"Dashboard: http://localhost:{PORT}/dashboard.html", flush=True)
     print("Stoppen: CTRL und dann c", flush=True)
     print("=" * 50, flush=True)
-    runner = Runner(engine, last_price=engine.history[-1][1] if engine.history else 0.0)
+    notifier = Notifier("Tradebot (Paper)")
+    engine.on_alert = notifier.send
+    if notifier.available:
+        print("Benachrichtigungen: an (Kauf, Nachkauf, Verkauf, Probleme)", flush=True)
+        notifier.send("läuft", "Benachrichtigungen funktionieren. Du hörst von mir bei Kauf und Verkauf.")
+    else:
+        print("Benachrichtigungen: aus. Einrichten: App Termux:API installieren, dann pkg install termux-api",
+              flush=True)
+    runner = Runner(engine, last_price=engine.history[-1][1] if engine.history else 0.0, notifier=notifier)
     engine._say(f"Start: {'alter Stand geladen' if resumed else 'neuer Stand'}, Cash {engine.broker.cash:.2f}")
     try:
         while True:

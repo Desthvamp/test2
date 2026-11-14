@@ -34,6 +34,7 @@ class Engine:
     history: list[tuple[float, float]] = field(default_factory=list)   # (Zeit, Kurs)
     log: list[str] = field(default_factory=list)                       # nur Ereignisse
     on_log: Callable[[str], None] | None = None   # z. B. print, damit man im Terminal etwas sieht
+    on_alert: Callable[[str, str], None] | None = None   # (Titel, Text) für Benachrichtigungen aufs Gerät
     day: str = ""                                  # Kalendertag, für den das Tageslimit gilt
     last_exit_ts: float = 0.0
     signal: list[Check] = field(default_factory=list)
@@ -56,12 +57,13 @@ class Engine:
         if left >= self.broker.min_qty:      # nur ein Teil wurde verkauft, der Rest bleibt abgesichert
             pos.qty, pos.cost = left, pos.cost * (1 - share)
             self._say(f"TEILVERKAUF {symbol} {fill.qty:.6f} @ {fill.price:.2f} ({label}), "
-                      f"Ergebnis {result:+.2f} EUR nach Gebühren")
+                      f"Ergebnis {result:+.2f} EUR nach Gebühren", alert="Teil verkauft")
             return
         del self.positions[symbol]
         self.last_exit_ts = now
         self.rearm = True
-        self._say(f"VERKAUF {symbol} @ {fill.price:.2f} ({label}), Ergebnis {result:+.2f} EUR nach Gebühren")
+        self._say(f"VERKAUF {symbol} @ {fill.price:.2f} ({label}), Ergebnis {result:+.2f} EUR nach Gebühren",
+                  alert="Verkauft")
 
     @staticmethod
     def _stop_text(pos: Position) -> str:
@@ -94,18 +96,22 @@ class Engine:
             return
         add_to_position(pos, fill.qty, fill.price, fill.total, cfg)
         self._say(f"NACHKAUF {pos.symbol} {fill.qty:.6f} @ {fill.price:.2f} (= {fill.qty * fill.price:.2f} EUR), "
-                  f"neuer Schnitt {pos.entry:.2f}, {self._stop_text(pos)}, Ziel {pos.take_profit:.2f}")
+                  f"neuer Schnitt {pos.entry:.2f}, {self._stop_text(pos)}, Ziel {pos.take_profit:.2f}",
+                  alert="Nachgekauft")
 
     def _uncertain(self, err: Exception) -> None:
         self.lock = str(err)
-        self._say(f"ACHTUNG: {err}")
+        self._say(f"ACHTUNG: {err}", alert="Achtung, bitte nachsehen")
 
-    def _say(self, msg: str, log: bool = True) -> None:
-        """Ereignis melden. Gleiche Meldung direkt hintereinander landet nur einmal im Log."""
+    def _say(self, msg: str, log: bool = True, alert: str = "") -> None:
+        """Ereignis melden. Gleiche Meldung direkt hintereinander landet nur einmal im Log.
+        Mit `alert` (Titel) geht sie zusätzlich als Benachrichtigung aufs Gerät."""
         line = time.strftime("%d.%m. %H:%M:%S ") + msg
         if log and msg != self._last_msg:
             self.log = (self.log + [line])[-200:]
             self._last_msg = msg
+            if alert and self.on_alert:
+                self.on_alert(alert, msg)
         if self.on_log:
             self.on_log(line)
 
@@ -197,14 +203,15 @@ class Engine:
         pos = self.positions[symbol] = open_position(symbol, fill.qty, fill.price, self.risk_cfg, cost=fill.total)
         self.signal = [Check(False, self._add_hint(pos))]
         self._say(f"KAUF {symbol} {fill.qty:.6f} @ {fill.price:.2f} (= {fill.qty * fill.price:.2f} EUR), "
-                  f"{self._stop_text(pos)}, Ziel {pos.take_profit:.2f}")
+                  f"{self._stop_text(pos)}, Ziel {pos.take_profit:.2f}", alert="Gekauft")
         try:
             if pos.stop > 0:
                 self.broker.set_stop(symbol, pos.stop)
         except BrokerUncertain as err:
             self._uncertain(err)
         except BrokerError as err:
-            self._say(f"ACHTUNG: Stop an der Börse noch nicht gesetzt ({err}), neuer Versuch beim nächsten Kurs")
+            self._say(f"ACHTUNG: Stop an der Börse noch nicht gesetzt ({err}), neuer Versuch beim nächsten Kurs",
+                      alert="Achtung, bitte nachsehen")
 
     def snapshot(self, price: float) -> dict:
         return {

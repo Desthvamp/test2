@@ -41,6 +41,13 @@ Stand November 2026).
 **Alle Schwellen sind Faustwerte und nicht an historischen Daten geprüft.** Die Nachrichten-Stimmung ist eine
 einfache Schlüsselwort-Zählung in englischen Schlagzeilen, keine KI.
 
+## Benachrichtigungen
+
+Bei Kauf, Nachkauf, Verkauf und Problemen schickt der Bot eine Android-Benachrichtigung mit Ton und Vibration.
+Einrichten (einmalig): App **Termux:API** aus F-Droid installieren, dann in Termux `pkg install termux-api`.
+Testen: `python -m tradebot.notify`. Ohne Termux:API läuft der Bot ohne Benachrichtigungen weiter.
+Auf einem echten Gerät ist das noch nicht getestet.
+
 ## Datenquellen
 
 Kurs: Kraken (öffentlich). Stimmung: alternative.me Fear & Greed. Nachrichten: RSS von Cointelegraph und CoinDesk.
