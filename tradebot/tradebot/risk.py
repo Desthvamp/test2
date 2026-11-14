@@ -6,9 +6,11 @@ from dataclasses import dataclass, field
 
 @dataclass
 class RiskConfig:
-    risk_per_trade_pct: float = 0.02   # max. Verlust pro Trade (inkl. Gebühren) in % des Kapitals
-    max_position_pct: float = 0.50     # max. Anteil des Kapitals in einer Position
-    stop_loss_pct: float = 0.05        # initialer Stop-Loss
+    stop_loss_pct: float = 0.0         # 0 = KEIN Stop-Loss: Position wird gehalten, nie mit Verlust verkauft.
+                                       # z. B. 0.05 = Verkauf bei -5 % unter dem Einstieg
+    position_pct: float = 0.30         # ohne Stop-Loss: Anteil des Kapitals pro Kauf
+    risk_per_trade_pct: float = 0.02   # nur mit Stop-Loss: max. Verlust pro Kauf (inkl. Gebühren)
+    max_position_pct: float = 0.50     # max. Anteil des Kapitals pro Kauf
     take_profit_pct: float = 0.10      # Gewinnmitnahme
     trail_activation_pct: float = 0.06 # ab diesem Gewinn wird Trailing-Stop aktiv (deckt dann etwa die Gebühren)
     trail_distance_pct: float = 0.03   # Abstand des Trailing-Stops zum Hoch
@@ -40,15 +42,22 @@ class RiskState:
 
 
 def position_size(equity: float, price: float, cfg: RiskConfig) -> float:
-    """Menge so wählen, dass ein Stop-Loss-Treffer inklusive Kauf- und Verkaufsgebuehr
-    höchstens risk_per_trade_pct des Kapitals kostet."""
+    """Ohne Stop-Loss: fester Anteil des Kapitals. Mit Stop-Loss: Menge so, dass ein Stop-Treffer
+    inklusive Kauf- und Verkaufsgebühr höchstens risk_per_trade_pct des Kapitals kostet."""
     if price <= 0 or equity <= 0:
         return 0.0
-    risk_amount = equity * cfg.risk_per_trade_pct
-    loss_per_euro = cfg.stop_loss_pct + 2 * cfg.fee_pct
-    qty_by_risk = risk_amount / (price * loss_per_euro)
+    if cfg.stop_loss_pct > 0:
+        loss_per_euro = cfg.stop_loss_pct + 2 * cfg.fee_pct
+        qty_by_risk = equity * cfg.risk_per_trade_pct / (price * loss_per_euro)
+    else:
+        qty_by_risk = equity * cfg.position_pct / price
     qty_by_cap = equity * cfg.max_position_pct / price
     return max(0.0, min(qty_by_risk, qty_by_cap))
+
+
+def initial_stop(entry: float, cfg: RiskConfig) -> float:
+    """0.0 bedeutet: kein Stop. Erst der nachgezogene Stop im Gewinn setzt dann einen."""
+    return entry * (1 - cfg.stop_loss_pct) if cfg.stop_loss_pct > 0 else 0.0
 
 
 def open_position(symbol: str, qty: float, price: float, cfg: RiskConfig, cost: float = 0.0) -> Position:
@@ -58,19 +67,19 @@ def open_position(symbol: str, qty: float, price: float, cfg: RiskConfig, cost: 
         qty=qty,
         entry=price,
         peak=price,
-        stop=price * (1 - cfg.stop_loss_pct),
+        stop=initial_stop(price, cfg),
         take_profit=price * (1 + cfg.take_profit_pct),
     )
 
 
 def add_to_position(pos: Position, qty: float, price: float, cost: float, cfg: RiskConfig) -> None:
-    """Nachkauf verbuchen: Durchschnittskurs neu, Stop und Ziel beziehen sich danach auf diesen Schnitt.
-    Der Stop rutscht dadurch nach unten; das ist die einzige Stelle, an der das passiert."""
+    """Nachkauf verbuchen: Durchschnittskurs neu, Ziel (und ein Stop-Loss, falls eingestellt) beziehen
+    sich danach auf diesen Schnitt. Ein Stop rutscht dadurch nach unten; nur hier passiert das."""
     pos.entry = (pos.qty * pos.entry + qty * price) / (pos.qty + qty)
     pos.qty += qty
     pos.cost += cost
     pos.adds += 1
-    pos.stop = pos.entry * (1 - cfg.stop_loss_pct)
+    pos.stop = initial_stop(pos.entry, cfg)
     pos.take_profit = pos.entry * (1 + cfg.take_profit_pct)
 
 
@@ -82,7 +91,7 @@ def update_position(pos: Position, price: float, cfg: RiskConfig) -> str | None:
     if pos.trailing_active:
         # Stop wandert nur nach oben und sichert Gewinne ab.
         pos.stop = max(pos.stop, pos.peak * (1 - cfg.trail_distance_pct))
-    if price <= pos.stop:
+    if pos.stop > 0 and price <= pos.stop:
         return "stop"
     if price >= pos.take_profit:
         return "take_profit"

@@ -12,8 +12,9 @@ Aus der Doku:
 
 So arbeitet der Broker:
 - Kauf als Limit-Order mit IOC knapp über dem aktuellen Kurs: wird sofort ausgeführt oder gar nicht.
-- Danach liegt der Stop-Loss als echte Order bei Kraken und wird dort nur nach oben nachgezogen.
-  Er greift also auch, wenn der Bot oder das Gerät ausfällt.
+- Setzt die Engine einen Stop, liegt er als echte Order bei Kraken und wird dort nachgezogen.
+  Er greift dann auch, wenn der Bot oder das Gerät ausfällt. In der Standardeinstellung gibt es
+  KEINEN Stop-Loss; ein Stop entsteht erst im Gewinn (nachgezogener Stop).
 - Gewinnmitnahme und Not-Aus macht der Bot selbst: Stop-Order löschen, dann Markt-Verkauf.
 
 Die Signatur ist gegen das Beispiel aus der Doku geprüft, der Rest gegen eine nachgebaute Börse

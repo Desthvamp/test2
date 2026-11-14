@@ -10,7 +10,7 @@ from typing import Callable
 
 from .broker import BrokerError, BrokerUncertain, Fill, PaperBroker
 from .risk import (Position, RiskConfig, RiskState, add_to_position, check_daily_limit,
-                   open_position, position_size, update_position)
+                   initial_stop, open_position, position_size, update_position)
 from .strategy import Check, StrategyConfig, entry_signal
 
 EXIT_TEXT = {"stop": "Stop-Loss", "take_profit": "Gewinnmitnahme", "kill_switch": "Not-Aus",
@@ -63,6 +63,10 @@ class Engine:
         self.rearm = True
         self._say(f"VERKAUF {symbol} @ {fill.price:.2f} ({label}), Ergebnis {result:+.2f} EUR nach Gebühren")
 
+    @staticmethod
+    def _stop_text(pos: Position) -> str:
+        return f"Stop {pos.stop:.2f}" if pos.stop > 0 else "kein Stop-Loss"
+
     def _add_hint(self, pos: Position) -> str:
         if pos.adds >= self.risk_cfg.max_adds:
             return "Position offen, Nachkauf schon erfolgt" if pos.adds else "Position offen, kein weiterer Kauf"
@@ -90,7 +94,7 @@ class Engine:
             return
         add_to_position(pos, fill.qty, fill.price, fill.total, cfg)
         self._say(f"NACHKAUF {pos.symbol} {fill.qty:.6f} @ {fill.price:.2f} (= {fill.qty * fill.price:.2f} EUR), "
-                  f"neuer Schnitt {pos.entry:.2f}, Stop {pos.stop:.2f}, Ziel {pos.take_profit:.2f}")
+                  f"neuer Schnitt {pos.entry:.2f}, {self._stop_text(pos)}, Ziel {pos.take_profit:.2f}")
 
     def _uncertain(self, err: Exception) -> None:
         self.lock = str(err)
@@ -147,7 +151,8 @@ class Engine:
                     else:
                         if not (kill or self.lock or self.risk.halted):
                             self._maybe_add(pos, price, now)
-                        self.broker.set_stop(symbol, pos.stop)   # anlegen, nachziehen, an Nachkauf anpassen
+                        if pos.stop > 0:
+                            self.broker.set_stop(symbol, pos.stop)   # anlegen, nachziehen, an Nachkauf anpassen
             except BrokerUncertain as err:
                 self._uncertain(err)
             except BrokerError as err:
@@ -192,9 +197,10 @@ class Engine:
         pos = self.positions[symbol] = open_position(symbol, fill.qty, fill.price, self.risk_cfg, cost=fill.total)
         self.signal = [Check(False, self._add_hint(pos))]
         self._say(f"KAUF {symbol} {fill.qty:.6f} @ {fill.price:.2f} (= {fill.qty * fill.price:.2f} EUR), "
-                  f"Stop {pos.stop:.2f}, Ziel {pos.take_profit:.2f}")
+                  f"{self._stop_text(pos)}, Ziel {pos.take_profit:.2f}")
         try:
-            self.broker.set_stop(symbol, pos.stop)
+            if pos.stop > 0:
+                self.broker.set_stop(symbol, pos.stop)
         except BrokerUncertain as err:
             self._uncertain(err)
         except BrokerError as err:
@@ -243,6 +249,8 @@ class Engine:
             positions = {str(k): Position(**v) for k, v in r["positions"].items()}
             for pos in positions.values():   # Stand aus einer älteren Version ohne Kaufkosten
                 pos.cost = pos.cost or pos.qty * pos.entry * (1 + self.risk_cfg.fee_pct)
+                if not pos.trailing_active:  # es gilt die Stop-Loss-Einstellung von heute, nicht die von damals
+                    pos.stop = initial_stop(pos.entry, self.risk_cfg)
             trades = list(r["trades"])
             stops = {str(k): dict(v) for k, v in r.get("stops", {}).items()}
             history = [(float(t), float(p)) for t, p in r["history"]]

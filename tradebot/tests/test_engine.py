@@ -2,6 +2,12 @@ import pytest
 
 from tradebot.broker import PaperBroker
 from tradebot.engine import Engine, EngineConfig
+from tradebot.risk import RiskConfig
+
+
+def STOP():
+    """Einstellung MIT Stop-Loss bei -5 % (Standard ist ohne)."""
+    return RiskConfig(stop_loss_pct=0.05)
 
 
 def mk(tmp_path, **kw):
@@ -73,7 +79,7 @@ def test_no_buy_when_price_below_average_or_falling(tmp_path):
 
 
 def test_no_pause_after_exit_by_default(tmp_path):
-    e = mk(tmp_path)
+    e = mk(tmp_path, risk_cfg=STOP())
     t = warm(e)
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     e.tick(95.5, 0.9, now=t + 60, fear_greed=50)        # Stop-Loss (Stop liegt bei 95.95)
@@ -89,7 +95,7 @@ def test_no_pause_after_exit_by_default(tmp_path):
 
 def test_pause_can_be_configured(tmp_path):
     from tradebot.strategy import StrategyConfig
-    e = mk(tmp_path, strat_cfg=StrategyConfig(cooldown_s=6 * 3600))
+    e = mk(tmp_path, risk_cfg=STOP(), strat_cfg=StrategyConfig(cooldown_s=6 * 3600))
     t = warm(e)
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     e.tick(95.5, 0.9, now=t + 60, fear_greed=50)
@@ -124,12 +130,12 @@ def test_daily_limit_blocks_new_entries(tmp_path):
 
 
 def test_restore_continues_with_open_position(tmp_path):
-    e = mk(tmp_path)
+    e = mk(tmp_path, risk_cfg=STOP())
     t = warm(e)
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     e.start_day("2026-11-13", 100.0)
     e.save(101.0)
-    e2 = mk(tmp_path)
+    e2 = mk(tmp_path, risk_cfg=STOP())
     assert e2.restore()
     assert e2.broker.cash == e.broker.cash and e2.positions == e.positions
     assert e2.broker.holdings == e.broker.holdings and e2.day == "2026-11-13"
@@ -167,7 +173,7 @@ def test_log_echo_and_dedupe(tmp_path):
 
 def test_restore_state_from_older_version_without_cost(tmp_path):
     import json
-    e = mk(tmp_path)
+    e = mk(tmp_path, risk_cfg=STOP())
     t = warm(e)
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     e.save(101.0)
@@ -176,7 +182,7 @@ def test_restore_state_from_older_version_without_cost(tmp_path):
     for p in d["resume"]["positions"].values():
         del p["cost"]
     (tmp_path / "s.json").write_text(json.dumps(d))
-    e2 = mk(tmp_path)
+    e2 = mk(tmp_path, risk_cfg=STOP())
     assert e2.restore()
     assert e2.positions["BTC-EUR"].cost == pytest.approx(e.positions["BTC-EUR"].cost)
     e2.tick(95.5, 0.0, now=t + 60)
@@ -214,7 +220,7 @@ def dip_and_turn(e, t, tick=None):
 
 
 def test_add_after_dip_once_price_turns_up(tmp_path):
-    e = mk(tmp_path)
+    e = mk(tmp_path, risk_cfg=STOP())
     t = warm(e)
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     first = e.positions["BTC-EUR"].qty
@@ -230,7 +236,7 @@ def test_add_after_dip_once_price_turns_up(tmp_path):
 
 
 def test_add_happens_only_once_and_loss_stays_bounded(tmp_path):
-    e = mk(tmp_path)
+    e = mk(tmp_path, risk_cfg=STOP())
     t = warm(e)
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     t = dip_and_turn(e, t + 60)
@@ -298,3 +304,58 @@ def test_rearm_survives_restart(tmp_path):
     assert e2.restore() and e2.rearm
     e2.tick(112.5, 0.9, now=t + 120, fear_greed=50)
     assert not e2.positions
+
+
+# ---------- Standard: kein Stop-Loss ----------
+
+def test_default_never_sells_at_a_loss(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    pos = e.positions["BTC-EUR"]
+    assert pos.stop == 0 and "kein Stop-Loss" in e.log[-1]
+    assert 100.0 - e.broker.cash == pytest.approx(30.0 * 1.008)        # fester Anteil: 30 % des Kapitals
+    for i, p in enumerate([95.0, 80.0, 60.0, 40.0]):                   # freier Fall, kein Dreh nach oben
+        e.tick(p, 0.9, now=t + 60 * (i + 1), fear_greed=50)
+    assert "BTC-EUR" in e.positions and len(e.broker.trades) == 1      # gehalten, nichts verkauft
+    assert not any("VERKAUF" in line for line in e.log)
+    assert e.broker.equity({"BTC-EUR": 40.0}) < 82.0                   # der Verlust ist nicht begrenzt
+    e.tick(112.0, 0.9, now=t + 600, fear_greed=50)                     # Erholung bis zum Ziel
+    assert not e.positions and "Gewinnmitnahme" in e.log[-1] and "Ergebnis +" in e.log[-1]
+
+
+def test_default_trailing_stop_still_secures_gains(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    e.tick(108.0, 0.9, now=t + 60, fear_greed=50)                      # +6,9 %: ab jetzt gibt es einen Stop
+    pos = e.positions["BTC-EUR"]
+    assert pos.trailing_active and pos.stop == pytest.approx(108.0 * 0.97)
+    e.tick(104.0, 0.9, now=t + 120, fear_greed=50)
+    assert not e.positions and "nachgezogener Stop" in e.log[-1] and "Ergebnis +" in e.log[-1]
+
+
+def test_default_add_keeps_position_without_stop(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    dip_and_turn(e, t + 60)
+    pos = e.positions["BTC-EUR"]
+    assert pos.adds == 1 and pos.stop == 0 and "kein Stop-Loss" in e.log[-1]
+    assert 100.0 - e.broker.cash == pytest.approx(60.0 * 1.008)        # zweimal 30 EUR
+
+
+def test_restore_applies_todays_stop_setting(tmp_path):
+    e = mk(tmp_path, risk_cfg=STOP())                                  # alter Stand: Position mit Stop-Loss
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    assert e.positions["BTC-EUR"].stop == pytest.approx(95.95)
+    e.save(101.0)
+    e2 = mk(tmp_path)                                                  # neue Version: ohne Stop-Loss
+    assert e2.restore() and e2.positions["BTC-EUR"].stop == 0
+    e2.tick(90.0, 0.9, now=t + 60, fear_greed=50)
+    assert "BTC-EUR" in e2.positions
+    e2.tick(108.0, 0.9, now=t + 120, fear_greed=50)                    # ein nachgezogener Stop bleibt erhalten
+    e2.save(108.0)
+    e3 = mk(tmp_path)
+    assert e3.restore() and e3.positions["BTC-EUR"].stop == pytest.approx(108.0 * 0.97)

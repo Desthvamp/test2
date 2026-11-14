@@ -1,10 +1,12 @@
+import pytest
+
 from tradebot.broker import PaperBroker, BrokerError
 from tradebot.news import score_text, aggregate
 from tradebot.risk import RiskConfig, RiskState, check_daily_limit, open_position, position_size, update_position
 
 
 def test_position_size_respects_risk_and_cap():
-    cfg = RiskConfig()
+    cfg = RiskConfig(stop_loss_pct=0.05)
     qty = position_size(100.0, 50.0, cfg)
     assert qty * 50.0 <= 100 * cfg.max_position_pct + 1e-9
     # Durchgespielt: kaufen, am Stop-Loss verkaufen -> Verlust inkl. Gebuehren hoechstens 2 % (2 EUR)
@@ -15,7 +17,7 @@ def test_position_size_respects_risk_and_cap():
 
 
 def test_stop_loss_triggers():
-    cfg = RiskConfig()
+    cfg = RiskConfig(stop_loss_pct=0.05)
     pos = open_position("X", 1, 100.0, cfg)
     assert update_position(pos, 94.0, cfg) == "stop"
 
@@ -111,3 +113,12 @@ def test_real_headlines_from_november_2026():
     assert all(score_text(h) < 0 for h in negative), [h for h in negative if score_text(h) >= 0]
     assert all(score_text(h) > 0 for h in positive)
     assert all(score_text(h) == 0 for h in neutral)
+
+
+def test_default_has_no_stop_loss_and_fixed_position_size():
+    cfg = RiskConfig()
+    assert position_size(100.0, 50.0, cfg) * 50.0 == pytest.approx(30.0)
+    pos = open_position("X", 1, 100.0, cfg)
+    assert pos.stop == 0
+    assert update_position(pos, 1.0, cfg) is None          # egal wie tief: kein Verkauf
+    assert update_position(pos, 111.0, cfg) == "take_profit"

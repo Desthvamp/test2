@@ -7,9 +7,9 @@ GOOD = lambda: NewsSummary(0.9, 9, 0, 40)  # noqa: E731
 FLAT = [100.0] * 40
 
 
-def mk(tmp_path):
+def mk(tmp_path, **kw):
     cfg = EngineConfig(kill_file=str(tmp_path / "KILL"), state_file=str(tmp_path / "s.json"))
-    return Engine(broker=PaperBroker(cash=100.0), cfg=cfg)
+    return Engine(broker=PaperBroker(cash=100.0), cfg=cfg, **kw)
 
 
 def boom():
@@ -47,7 +47,8 @@ def test_no_news_means_no_buy_but_price_is_tracked(tmp_path):
 
 
 def test_stop_loss_still_works_when_news_fail(tmp_path):
-    e = mk(tmp_path)
+    from tradebot.risk import RiskConfig
+    e = mk(tmp_path, risk_cfg=RiskConfig(stop_loss_pct=0.05))
     r = Runner(e, news_fn=GOOD, fg_fn=lambda: 50)
     t = run(r, FLAT + [101.0])
     assert "BTC-EUR" in e.positions

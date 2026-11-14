@@ -24,14 +24,19 @@ Gekauft wird nur, wenn alle Bedingungen gleichzeitig erfüllt sind (`strategy.py
 Eine feste Pause nach einem Verkauf gibt es nicht. Das Kaufsignal muss nach einem Verkauf aber einmal
 erlöschen, bevor wieder gekauft wird; sonst würde der Bot im selben Moment zum selben Kurs zurückkaufen.
 
-Verkauft wird bei Stop-Loss (−5 %), Gewinnmitnahme (+10 %), nachgezogenem Stop (ab +6 % Gewinn folgt der Stop
-dem Kurs mit 3 % Abstand) oder Not-Aus (Datei `KILL` im Ordner `tradebot` anlegen).
+Verkauft wird bei Gewinnmitnahme (+10 %), nachgezogenem Stop (ab +6 % Gewinn folgt ein Stop dem Kurs mit
+3 % Abstand) oder Not-Aus (Datei `KILL` im Ordner `tradebot` anlegen).
+
+**Es gibt keinen Stop-Loss.** Der Bot verkauft nie mit Verlust, sondern hält die Position, bis sie wieder im
+Gewinn ist. Der Verlust einer Position ist damit nicht begrenzt, und solange sie im Minus ist, macht der Bot
+außer einem Nachkauf nichts. Ein Stop-Loss lässt sich wieder einschalten (`stop_loss_pct` in `risk.py`).
 
 Nachkauf: Liegt der Kurs mindestens 3 % unter dem Einstieg und steigt wieder (höher als vor 15 Minuten), kauft
-der Bot einmal für denselben Betrag nach. Stop, Ziel und Trailing gelten danach ab dem Durchschnittskurs.
+der Bot einmal für denselben Betrag nach. Ziel und Trailing gelten danach ab dem Durchschnittskurs.
 
-Risiko (`risk.py`): pro Position höchstens 2 % des Kapitals Verlust inklusive Gebühren, nach einem Nachkauf
-rund 4 %. Ab −5 % Tagesverlust keine neuen Käufe und keine Nachkäufe. Gebühr im Paper-Modus: 0,8 % je Kauf und Verkauf (Kraken, niedrigster Tarif, Stand November 2026).
+Einsatz (`risk.py`): 30 % des Kapitals pro Kauf, mit Nachkauf also bis zu rund 60 %. Ab −5 % Tagesverlust keine
+neuen Käufe und keine Nachkäufe. Gebühr im Paper-Modus: 0,8 % je Kauf und Verkauf (Kraken, niedrigster Tarif,
+Stand November 2026).
 
 **Alle Schwellen sind Faustwerte und nicht an historischen Daten geprüft.** Die Nachrichten-Stimmung ist eine
 einfache Schlüsselwort-Zählung in englischen Schlagzeilen, keine KI.
@@ -46,8 +51,8 @@ Kein Kurs: Tick wird übersprungen. Keine Nachrichten: es wird nichts gekauft, o
 `kraken.py` ist nach der offiziellen Kraken-Doku gebaut:
 
 - Kauf als Limit-Order, die sofort ausgeführt wird oder verfällt (höchstens 0,5 % über dem aktuellen Kurs).
-- Der Stop-Loss liegt als echte Order bei Kraken und wird dort nachgezogen. Er greift auch, wenn der Bot
-  oder das Gerät ausfällt.
+- Ein Stop liegt als echte Order bei Kraken und wird dort nachgezogen. Er greift auch, wenn der Bot oder
+  das Gerät ausfällt. In der Standardeinstellung entsteht er erst im Gewinn; einen Stop-Loss gibt es nicht.
 - Gewinnmitnahme und Not-Aus macht der Bot selbst (Stop-Order löschen, Markt-Verkauf).
 - Der Bot verwaltet nur das zugewiesene Kapital, nicht das ganze Konto.
 - Ist nach einem Netzwerkfehler unklar, ob eine Order ankam, kauft der Bot nichts mehr, bis jemand

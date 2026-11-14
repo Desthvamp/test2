@@ -5,6 +5,7 @@ from test_engine import dip_and_turn, warm
 from tradebot.broker import BrokerError, BrokerUncertain
 from tradebot.engine import Engine, EngineConfig
 from tradebot.kraken import KrakenBroker, KrakenClient, sign
+from tradebot.risk import RiskConfig
 
 S = "BTC-EUR"
 
@@ -13,9 +14,10 @@ def broker(fake, cash=100.0, **kw):
     return KrakenBroker(fake.client(), cash, live=True, sleep=lambda s: None, **kw)
 
 
-def engine(tmp_path, fake):
+def engine(tmp_path, fake, stop_loss=0.05):
+    """Die meisten Tests hier prüfen die Stop-Order an der Börse, also MIT Stop-Loss (Standard ist ohne)."""
     cfg = EngineConfig(kill_file=str(tmp_path / "KILL"), state_file=str(tmp_path / "s.json"))
-    return Engine(broker=broker(fake), cfg=cfg)
+    return Engine(broker=broker(fake), cfg=cfg, risk_cfg=RiskConfig(stop_loss_pct=stop_loss))
 
 
 def tick(e, fake, price, t):
@@ -312,3 +314,22 @@ def test_engine_add_resizes_stop_on_exchange_and_exchange_closes_all(tmp_path):
     assert not e.positions and not fake.open_stops() and fake.btc == pytest.approx(0, abs=1e-8)
     assert e.broker.cash - 100 == pytest.approx(fake.eur - 500, abs=1e-3)
     assert -4.4 < e.broker.cash - 100 < -3.8             # rund 4 EUR Verlust
+
+
+# ---------- Standard: kein Stop-Loss ----------
+
+def test_engine_default_places_no_stop_order_until_in_profit(tmp_path):
+    fake = FakeKraken()
+    e = engine(tmp_path, fake, stop_loss=0.0)
+    t = warm(e)
+    tick(e, fake, 101.0, t)
+    assert S in e.positions and not fake.open_stops() and len(fake.sent("AddOrder")) == 1
+    tick(e, fake, 85.0, t + 60)                              # tief im Minus: gehalten, nichts an der Börse
+    assert S in e.positions and not fake.open_stops() and len(fake.sent("AddOrder")) == 1
+    tick(e, fake, 108.0, t + 120)                            # im Gewinn: jetzt liegt ein Stop bei Kraken
+    (stop,) = fake.open_stops()
+    assert stop["descr"]["price"] == "104.8" and float(stop["vol"]) == pytest.approx(e.positions[S].qty, abs=1e-8)
+    fake.trigger_stop()
+    tick(e, fake, 104.0, t + 180)
+    assert not e.positions and "nachgezogener Stop" in e.log[-1] and "Ergebnis +" in e.log[-1]
+    assert e.broker.cash - 100 == pytest.approx(fake.eur - 500, abs=1e-3)
