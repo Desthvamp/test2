@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 class RiskConfig:
     stop_loss_pct: float = 0.0         # 0 = KEIN Stop-Loss: Position wird gehalten, nie mit Verlust verkauft.
                                        # z. B. 0.05 = Verkauf bei -5 % unter dem Einstieg
-    position_pct: float = 0.20         # ohne Stop-Loss: Anteil des Kapitals pro Kauf (und pro Nachkauf)
+    position_pct: float = 0.30         # ohne Stop-Loss: Anteil des Kapitals pro Kauf (und pro Nachkauf)
     risk_per_trade_pct: float = 0.02   # nur mit Stop-Loss: max. Verlust pro Kauf (inkl. Gebühren)
     max_position_pct: float = 0.50     # max. Anteil des Kapitals pro Kauf
     take_profit_pct: float = 0.10      # Gewinnmitnahme
@@ -16,7 +16,8 @@ class RiskConfig:
     trail_distance_pct: float = 0.03   # Abstand des Trailing-Stops zum Hoch
     max_daily_loss_pct: float = 0.05   # Tagesverlust, ab dem nichts mehr eroeffnet wird
     max_open_positions: int = 1
-    max_adds: int = 3                  # so oft darf pro Position nachgekauft werden (0 = aus)
+    max_adds: int = 2                  # so oft darf pro Position nachgekauft werden (0 = aus); 3 x 30 % = 90 %
+    add_lookback_s: float = 300        # Wende beim Nachkauf: Kurs muss höher stehen als vor so vielen Sekunden
     add_retrace: float = 0.3           # Nachkauf, sobald sich der Kurs vom Tief um diesen Anteil des Rückgangs erholt hat
     add_min_discount_fees: float = 1.0 # ... und noch mindestens so viele Hin-und-zurück-Gebühren unter dem letzten Kauf liegt
     fee_pct: float = 0.008             # Gebühr je Kauf/Verkauf: Kraken Taker, niedrigster Tarif

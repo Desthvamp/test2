@@ -32,13 +32,14 @@ Gewinn ist. Der Verlust einer Position ist damit nicht begrenzt, und solange sie
 außer einem Nachkauf nichts. Ein Stop-Loss lässt sich wieder einschalten (`stop_loss_pct` in `risk.py`).
 
 Nachkauf: Der Bot merkt sich das Tief seit dem letzten Kauf. Er kauft nach, sobald sich der Kurs vom Tief um
-30 % des Rückgangs erholt hat, höher steht als vor 15 Minuten und noch mindestens 1,6 % (Gebühren für Kauf und
+30 % des Rückgangs erholt hat, höher steht als vor 5 Minuten und noch mindestens 1,6 % (Gebühren für Kauf und
 Verkauf) unter dem letzten Kauf liegt. Eine feste Kursmarke gibt es nicht; der Auslöser wandert mit dem Tief.
-Bis zu drei Nachkäufe, jeder für denselben Betrag. Ziel und Trailing gelten danach ab dem Durchschnittskurs.
+Bis zu zwei Nachkäufe, jeder für denselben Betrag. Ziel und Trailing gelten danach ab dem Durchschnittskurs.
 Kein Verfahren erkennt das Tief im Voraus: Gekauft wird immer erst nach der Wende, und in einem langen Rückgang
-sind die Nachkäufe verbraucht, bevor das eigentliche Tief kommt.
+sind die Nachkäufe verbraucht, bevor das eigentliche Tief kommt. Die 30 % sind an echten Kursen geprüft:
+Kleinere Werte kauften am 15.11.2026 schon in eine Zwischenerholung, bevor der Kurs weiter fiel.
 
-Einsatz (`risk.py`): 20 % des Kapitals pro Kauf, mit drei Nachkäufen also bis zu rund 80 %. Ab −5 % Tagesverlust
+Einsatz (`risk.py`): 30 % des Kapitals pro Kauf, mit zwei Nachkäufen also bis zu rund 90 %. Ab −5 % Tagesverlust
 keine neuen Käufe und keine Nachkäufe. Gebühr im Paper-Modus: 0,8 % je Kauf und Verkauf (Kraken, niedrigster
 Tarif, Stand November 2026).
 

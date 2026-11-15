@@ -79,18 +79,18 @@ class Engine:
         if start > end:
             return f"Position offen, {many}. Dafür muss der Kurs erst deutlich unter {end:.2f} fallen"
         return (f"Position offen, {many}. Tief {pos.low:.2f}. Nachkauf zwischen {start:.2f} und {end:.2f}, "
-                f"sobald der Kurs höher steht als vor einer Viertelstunde")
+                f"sobald der Kurs höher steht als vor {self.risk_cfg.add_lookback_s / 60:.0f} Minuten")
 
     def _maybe_add(self, pos: Position, price: float, now: float) -> None:
         """Nachkauf nach einem Rückgang, sobald der Kurs erkennbar dreht (siehe risk.add_zone) und höher
-        steht als vor einer Viertelstunde. Gleicher Euro-Betrag wie beim ersten Kauf."""
+        steht als vor add_lookback_s Sekunden. Gleicher Euro-Betrag wie beim ersten Kauf."""
         cfg = self.risk_cfg
         if pos.adds >= cfg.max_adds or pos.trailing_active:
             return
         start, end = add_zone(pos, cfg)
         if not start <= price <= end:
             return
-        past = [p for t, p in self.history if t <= now - self.strat_cfg.momentum_lookback_s]
+        past = [p for t, p in self.history if t <= now - cfg.add_lookback_s]
         if not past or price <= past[-1]:
             return          # fällt noch: nicht ins fallende Messer greifen
         tranche = pos.qty * pos.entry / (pos.adds + 1)
