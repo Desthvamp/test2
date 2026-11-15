@@ -31,15 +31,26 @@ Verkauft wird bei Gewinnmitnahme (+10 %), nachgezogenem Stop (ab +6 % Gewinn fol
 Gewinn ist. Der Verlust einer Position ist damit nicht begrenzt, und solange sie im Minus ist, macht der Bot
 außer einem Nachkauf nichts. Ein Stop-Loss lässt sich wieder einschalten (`stop_loss_pct` in `risk.py`).
 
-Nachkauf: Liegt der Kurs mindestens 3 % unter dem Einstieg und steigt wieder (höher als vor 15 Minuten), kauft
-der Bot einmal für denselben Betrag nach. Ziel und Trailing gelten danach ab dem Durchschnittskurs.
+Nachkauf: Der Bot merkt sich das Tief seit dem letzten Kauf. Er kauft nach, sobald sich der Kurs vom Tief um
+30 % des Rückgangs erholt hat, höher steht als vor 15 Minuten und noch mindestens 1,6 % (Gebühren für Kauf und
+Verkauf) unter dem letzten Kauf liegt. Eine feste Kursmarke gibt es nicht; der Auslöser wandert mit dem Tief.
+Bis zu drei Nachkäufe, jeder für denselben Betrag. Ziel und Trailing gelten danach ab dem Durchschnittskurs.
+Kein Verfahren erkennt das Tief im Voraus: Gekauft wird immer erst nach der Wende, und in einem langen Rückgang
+sind die Nachkäufe verbraucht, bevor das eigentliche Tief kommt.
 
-Einsatz (`risk.py`): 30 % des Kapitals pro Kauf, mit Nachkauf also bis zu rund 60 %. Ab −5 % Tagesverlust keine
-neuen Käufe und keine Nachkäufe. Gebühr im Paper-Modus: 0,8 % je Kauf und Verkauf (Kraken, niedrigster Tarif,
-Stand November 2026).
+Einsatz (`risk.py`): 20 % des Kapitals pro Kauf, mit drei Nachkäufen also bis zu rund 80 %. Ab −5 % Tagesverlust
+keine neuen Käufe und keine Nachkäufe. Gebühr im Paper-Modus: 0,8 % je Kauf und Verkauf (Kraken, niedrigster
+Tarif, Stand November 2026).
 
 **Alle Schwellen sind Faustwerte und nicht an historischen Daten geprüft.** Die Nachrichten-Stimmung ist eine
 einfache Schlüsselwort-Zählung in englischen Schlagzeilen, keine KI.
+
+## Regeln an echten Kursen durchspielen
+
+    python -m tradebot.backtest        # 5-Minuten-Kurse, rund 60 Stunden zurück (15 oder 60 für längere Zeiträume)
+
+Zeigt, wann die aktuellen Regeln in den echten Kraken-Kursen gekauft und verkauft hätten. Wenige Tage sagen
+nichts darüber, ob sich eine Regel lohnt.
 
 ## Benachrichtigungen
 

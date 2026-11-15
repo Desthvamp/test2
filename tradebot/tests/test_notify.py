@@ -61,7 +61,7 @@ def test_engine_alerts_on_buy_add_and_sell_only(tmp_path):
     assert not alerts                                        # Kursbewegungen allein melden nichts
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     t = dip_and_turn(e, t + 60)
-    e.tick(109.5, 0.9, now=t, fear_greed=50)
+    e.tick(110.0, 0.9, now=t, fear_greed=50)
     assert [a[0] for a in alerts] == ["Gekauft", "Nachgekauft", "Verkauft"]
     assert alerts[0][1].startswith("KAUF BTC-EUR") and "Ergebnis +" in alerts[2][1]
 

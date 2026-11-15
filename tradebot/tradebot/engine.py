@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 from .broker import BrokerError, BrokerUncertain, Fill, PaperBroker
-from .risk import (Position, RiskConfig, RiskState, add_to_position, check_daily_limit,
+from .risk import (Position, RiskConfig, RiskState, add_to_position, add_zone, check_daily_limit,
                    initial_stop, open_position, position_size, update_position)
 from .strategy import Check, StrategyConfig, entry_signal
 
@@ -46,6 +46,7 @@ class Engine:
         self._last_msg = ""
         self.lock = ""   # gesetzt, wenn der Zustand an der Börse unklar ist; nur ein Neustart hebt das auf
         self.rearm = False   # nach einem Verkauf: erst wieder kaufen, wenn das Signal einmal aus war
+        self._now = 0.0      # Zeit des laufenden Ticks, für die Zeitstempel im Log
 
     def _close(self, pos: Position, fill: Fill, reason: str, now: float) -> None:
         """Verbucht einen Verkauf in der Position und meldet das Ergebnis."""
@@ -71,20 +72,29 @@ class Engine:
 
     def _add_hint(self, pos: Position) -> str:
         if pos.adds >= self.risk_cfg.max_adds:
-            return "Position offen, Nachkauf schon erfolgt" if pos.adds else "Position offen, kein weiterer Kauf"
-        level = pos.entry * (1 - self.risk_cfg.add_drop_pct)
-        return f"Position offen. Nachkauf, wenn der Kurs unter {level:.2f} liegt und wieder steigt"
+            return "Position offen, alle Nachkäufe verbraucht" if pos.adds else "Position offen, kein weiterer Kauf"
+        start, end = add_zone(pos, self.risk_cfg)
+        left = self.risk_cfg.max_adds - pos.adds
+        many = f"noch {left} Nachkäufe möglich" if left > 1 else "noch 1 Nachkauf möglich"
+        if start > end:
+            return f"Position offen, {many}. Dafür muss der Kurs erst deutlich unter {end:.2f} fallen"
+        return (f"Position offen, {many}. Tief {pos.low:.2f}. Nachkauf zwischen {start:.2f} und {end:.2f}, "
+                f"sobald der Kurs höher steht als vor einer Viertelstunde")
 
     def _maybe_add(self, pos: Position, price: float, now: float) -> None:
-        """Nachkauf: Kurs deutlich unter dem Einstieg UND höher als vor einer Viertelstunde.
-        Gleicher Euro-Betrag wie beim ersten Kauf. Stop und Ziel gelten danach ab dem Durchschnittskurs."""
+        """Nachkauf nach einem Rückgang, sobald der Kurs erkennbar dreht (siehe risk.add_zone) und höher
+        steht als vor einer Viertelstunde. Gleicher Euro-Betrag wie beim ersten Kauf."""
         cfg = self.risk_cfg
-        if pos.adds >= cfg.max_adds or pos.trailing_active or price > pos.entry * (1 - cfg.add_drop_pct):
+        if pos.adds >= cfg.max_adds or pos.trailing_active:
+            return
+        start, end = add_zone(pos, cfg)
+        if not start <= price <= end:
             return
         past = [p for t, p in self.history if t <= now - self.strat_cfg.momentum_lookback_s]
         if not past or price <= past[-1]:
             return          # fällt noch: nicht ins fallende Messer greifen
-        qty = min(pos.qty * pos.entry / price, self.broker.cash / (price * (1 + cfg.fee_pct)))
+        tranche = pos.qty * pos.entry / (pos.adds + 1)
+        qty = min(tranche / price, self.broker.cash / (price * (1 + cfg.fee_pct)))
         if qty * price < 1:
             return
         try:
@@ -106,7 +116,7 @@ class Engine:
     def _say(self, msg: str, log: bool = True, alert: str = "") -> None:
         """Ereignis melden. Gleiche Meldung direkt hintereinander landet nur einmal im Log.
         Mit `alert` (Titel) geht sie zusätzlich als Benachrichtigung aufs Gerät."""
-        line = time.strftime("%d.%m. %H:%M:%S ") + msg
+        line = time.strftime("%d.%m. %H:%M:%S ", time.localtime(self._now or None)) + msg
         if log and msg != self._last_msg:
             self.log = (self.log + [line])[-200:]
             self._last_msg = msg
@@ -130,6 +140,7 @@ class Engine:
     def tick(self, price: float, news: float | None, now: float | None = None,
              fear_greed: int | None = None) -> None:
         now = time.time() if now is None else now
+        self._now = now
         cutoff = now - self.strat_cfg.trend_window_s
         self.history = [(t, p) for t, p in self.history if t >= cutoff] + [(now, price)]
         symbol = self.cfg.symbol
@@ -258,6 +269,9 @@ class Engine:
                 pos.cost = pos.cost or pos.qty * pos.entry * (1 + self.risk_cfg.fee_pct)
                 if not pos.trailing_active:  # es gilt die Stop-Loss-Einstellung von heute, nicht die von damals
                     pos.stop = initial_stop(pos.entry, self.risk_cfg)
+                if pos.last_buy <= 0:        # ältere Version kannte das Tief nicht: aus dem Kursverlauf schätzen
+                    pos.last_buy = pos.entry
+                    pos.low = min([pos.entry] + [float(p) for _, p in r["history"]])
             trades = list(r["trades"])
             stops = {str(k): dict(v) for k, v in r.get("stops", {}).items()}
             history = [(float(t), float(p)) for t, p in r["history"]]

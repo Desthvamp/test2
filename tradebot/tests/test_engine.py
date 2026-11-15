@@ -209,13 +209,14 @@ def test_fear_still_needs_price_turning_up(tmp_path):
 # ---------- Nachkauf ----------
 
 def dip_and_turn(e, t, tick=None):
-    """Nach dem Kauf zu 101: Kurs fällt auf 97, bleibt dort, dreht dann auf 97.5. Gibt die nächste Zeit zurück."""
+    """Nach dem Kauf zu 101: Kurs fällt auf 97, bleibt dort, dreht dann auf 98.5 (Nachkauf-Zone 98.2 bis 99.4).
+    Gibt die nächste Zeit zurück."""
     tick = tick or (lambda p, now: e.tick(p, 0.9, now=now, fear_greed=50))
     for p in [99.0] + [97.0] * 17:
         tick(p, t)
         t += 60
         assert e.positions["BTC-EUR"].adds == 0          # fällt oder steht: noch kein Nachkauf
-    tick(97.5, t)
+    tick(98.5, t)
     return t + 60
 
 
@@ -228,25 +229,26 @@ def test_add_after_dip_once_price_turns_up(tmp_path):
     t = dip_and_turn(e, t + 60)
     pos = e.positions["BTC-EUR"]
     assert pos.adds == 1 and "NACHKAUF" in e.log[-1]
-    assert pos.qty == pytest.approx(first + first * 101.0 / 97.5)          # gleicher Euro-Betrag
+    assert pos.qty == pytest.approx(first + first * 101.0 / 98.5)          # gleicher Euro-Betrag
     assert 100.0 - e.broker.cash == pytest.approx(2 * spent, rel=1e-3) == pytest.approx(pos.cost, rel=1e-3)
-    assert 97.5 < pos.entry < 101.0                                         # Durchschnittskurs
+    assert 98.5 < pos.entry < 101.0 and pos.last_buy == pos.low == 98.5                                         # Durchschnittskurs
     assert pos.stop == pytest.approx(pos.entry * 0.95) and pos.take_profit == pytest.approx(pos.entry * 1.10)
-    assert "Nachkauf schon erfolgt" in e.signal[0].text
+    assert "noch 2 Nachkäufe möglich" in e.signal[0].text
 
 
-def test_add_happens_only_once_and_loss_stays_bounded(tmp_path):
-    e = mk(tmp_path, risk_cfg=STOP())
+def test_single_add_setting_and_loss_stays_bounded_with_stop(tmp_path):
+    e = mk(tmp_path, risk_cfg=RiskConfig(stop_loss_pct=0.05, max_adds=1))
     t = warm(e)
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     t = dip_and_turn(e, t + 60)
-    for p in [96.0] * 17 + [96.1]:                       # wieder tiefer und wieder Dreh: kein zweiter Nachkauf
+    for p in [96.0] * 17 + [96.8]:                       # neuer Rückgang mit Dreh in der Zone: kein zweiter Nachkauf
         e.tick(p, 0.9, now=t, fear_greed=50)
         t += 60
     assert e.positions["BTC-EUR"].adds == 1 and len(e.broker.trades) == 2
-    e.tick(94.0, 0.9, now=t, fear_greed=50)              # Stop (rund 94.26) greift für die ganze Position
+    assert "alle Nachkäufe verbraucht" in e.signal[0].text
+    e.tick(94.0, 0.9, now=t, fear_greed=50)              # Stop (rund 94.75) greift für die ganze Position
     assert not e.positions and "Stop-Loss" in e.log[-1]
-    assert 95.5 < e.broker.cash < 96.2                   # rund 4 EUR Verlust, nicht mehr
+    assert 95.3 < e.broker.cash < 96.2                   # rund 4 EUR Verlust, nicht mehr
 
 
 def test_add_then_recovery_takes_profit_from_average(tmp_path):
@@ -254,8 +256,8 @@ def test_add_then_recovery_takes_profit_from_average(tmp_path):
     t = warm(e)
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     t = dip_and_turn(e, t + 60)
-    e.tick(109.5, 0.9, now=t, fear_greed=50)             # +10 % über dem Schnitt von rund 99.2
-    assert not e.positions and "Gewinnmitnahme" in e.log[-1] and e.broker.cash > 104.5
+    e.tick(110.0, 0.9, now=t, fear_greed=50)             # +10 % über dem Schnitt von rund 99.7
+    assert not e.positions and "Gewinnmitnahme" in e.log[-1] and e.broker.cash > 103.0
 
 
 @pytest.mark.parametrize("block", ["off", "halted", "lock", "no_cash"])
@@ -274,7 +276,7 @@ def test_add_is_blocked(tmp_path, block):
         e.lock = "Test"
     if block == "no_cash":
         e.broker.cash = 0.5
-    e.tick(97.5, 0.9, now=t, fear_greed=50)
+    e.tick(98.5, 0.9, now=t, fear_greed=50)
     assert e.positions["BTC-EUR"].adds == 0 and len(e.broker.trades) == 1
 
 
@@ -314,12 +316,12 @@ def test_default_never_sells_at_a_loss(tmp_path):
     e.tick(101.0, 0.9, now=t, fear_greed=50)
     pos = e.positions["BTC-EUR"]
     assert pos.stop == 0 and "kein Stop-Loss" in e.log[-1]
-    assert 100.0 - e.broker.cash == pytest.approx(30.0 * 1.008)        # fester Anteil: 30 % des Kapitals
+    assert 100.0 - e.broker.cash == pytest.approx(20.0 * 1.008)        # fester Anteil: 20 % des Kapitals
     for i, p in enumerate([95.0, 80.0, 60.0, 40.0]):                   # freier Fall, kein Dreh nach oben
         e.tick(p, 0.9, now=t + 60 * (i + 1), fear_greed=50)
     assert "BTC-EUR" in e.positions and len(e.broker.trades) == 1      # gehalten, nichts verkauft
     assert not any("VERKAUF" in line for line in e.log)
-    assert e.broker.equity({"BTC-EUR": 40.0}) < 82.0                   # der Verlust ist nicht begrenzt
+    assert e.broker.equity({"BTC-EUR": 40.0}) < 90.0                   # der Verlust ist nicht begrenzt
     e.tick(112.0, 0.9, now=t + 600, fear_greed=50)                     # Erholung bis zum Ziel
     assert not e.positions and "Gewinnmitnahme" in e.log[-1] and "Ergebnis +" in e.log[-1]
 
@@ -342,7 +344,7 @@ def test_default_add_keeps_position_without_stop(tmp_path):
     dip_and_turn(e, t + 60)
     pos = e.positions["BTC-EUR"]
     assert pos.adds == 1 and pos.stop == 0 and "kein Stop-Loss" in e.log[-1]
-    assert 100.0 - e.broker.cash == pytest.approx(60.0 * 1.008)        # zweimal 30 EUR
+    assert 100.0 - e.broker.cash == pytest.approx(40.0 * 1.008)        # zweimal 20 EUR
 
 
 def test_restore_applies_todays_stop_setting(tmp_path):
@@ -359,3 +361,79 @@ def test_restore_applies_todays_stop_setting(tmp_path):
     e2.save(108.0)
     e3 = mk(tmp_path)
     assert e3.restore() and e3.positions["BTC-EUR"].stop == pytest.approx(108.0 * 0.97)
+
+
+# ---------- Nachkauf richtet sich nach dem Kursverlauf ----------
+
+def test_add_zone_follows_the_low():
+    from tradebot.risk import Position, add_zone
+    cfg = RiskConfig()
+    pos = Position("X", 1, 100.0, 100.0, 0.0, 110.0, last_buy=100.0, low=97.0)
+    assert add_zone(pos, cfg) == pytest.approx((97.9, 98.4))        # 30 % von 3 erholt; höchstens 1,6 % unter Kauf
+    pos.low = 94.0
+    assert add_zone(pos, cfg) == pytest.approx((95.8, 98.4))        # tieferes Tief -> Zone beginnt tiefer
+    pos.low = 99.0
+    start, end = add_zone(pos, cfg)
+    assert start > end                                              # zu kleiner Rückgang: keine Zone
+
+
+def test_three_adds_each_after_a_new_dip(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    t = dip_and_turn(e, t + 60)                                     # 1. Nachkauf bei 98.5
+    for low, turn in [(96.0, 96.8), (94.0, 94.9), (92.0, 92.9)]:
+        for p in [low] * 17 + [turn]:
+            e.tick(p, 0.9, now=t, fear_greed=50)
+            t += 60
+    pos = e.positions["BTC-EUR"]
+    assert pos.adds == 3 and [round(x["price"], 1) for x in e.broker.trades] == [101.0, 98.5, 96.8, 94.9]
+    assert all(x["qty"] * x["price"] == pytest.approx(20.0, rel=1e-3) for x in e.broker.trades)   # gleiche Beträge
+    assert e.broker.cash == pytest.approx(100 - 80 * 1.008, rel=1e-3)
+    assert "alle Nachkäufe verbraucht" in e._add_hint(pos)
+    # 80 EUR sind investiert und der Kurs liegt 9 % unter dem ersten Kauf: das Tageslimit greift zusätzlich
+    assert e.risk.halted and "Tagesverlust" in e.signal[0].text
+
+
+def test_no_add_on_shallow_dip_or_when_recovery_went_too_far(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    t += 60
+    for p in [100.0] * 17 + [100.4]:                    # nur 1 % Rückgang, dann Dreh: lohnt nicht
+        e.tick(p, 0.9, now=t, fear_greed=50)
+        t += 60
+    assert e.positions["BTC-EUR"].adds == 0 and "erst deutlich unter 99.38 fallen" in e.signal[0].text
+    for p in [97.0] * 2 + [99.6] * 17 + [99.7]:         # tiefer Rückgang, aber der Kurs ist schon fast zurück
+        e.tick(p, 0.9, now=t, fear_greed=50)
+        t += 60
+    assert e.positions["BTC-EUR"].adds == 0
+
+
+def test_low_starts_over_when_price_is_back_at_last_buy(tmp_path):
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    e.tick(96.0, 0.9, now=t + 60, fear_greed=50)
+    assert e.positions["BTC-EUR"].low == 96.0
+    e.tick(101.5, 0.9, now=t + 120, fear_greed=50)      # wieder über dem Kauf: alter Rückgang ist erledigt
+    assert e.positions["BTC-EUR"].low == 101.5
+    e.tick(100.9, 0.9, now=t + 180, fear_greed=50)
+    assert e.positions["BTC-EUR"].low == 100.9 and e.positions["BTC-EUR"].adds == 0
+
+
+def test_restore_position_from_version_without_low(tmp_path):
+    import json
+    e = mk(tmp_path)
+    t = warm(e)
+    e.tick(101.0, 0.9, now=t, fear_greed=50)
+    e.tick(97.0, 0.9, now=t + 60, fear_greed=50)
+    e.save(97.0)
+    d = json.loads((tmp_path / "s.json").read_text())
+    for p in d["resume"]["positions"].values():
+        del p["last_buy"], p["low"]
+    (tmp_path / "s.json").write_text(json.dumps(d))
+    e2 = mk(tmp_path)
+    assert e2.restore()
+    pos = e2.positions["BTC-EUR"]
+    assert pos.last_buy == 101.0 and pos.low == 97.0    # Tief aus dem gespeicherten Kursverlauf

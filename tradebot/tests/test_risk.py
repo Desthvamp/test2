@@ -117,7 +117,7 @@ def test_real_headlines_from_november_2026():
 
 def test_default_has_no_stop_loss_and_fixed_position_size():
     cfg = RiskConfig()
-    assert position_size(100.0, 50.0, cfg) * 50.0 == pytest.approx(30.0)
+    assert position_size(100.0, 50.0, cfg) * 50.0 == pytest.approx(20.0)
     pos = open_position("X", 1, 100.0, cfg)
     assert pos.stop == 0
     assert update_position(pos, 1.0, cfg) is None          # egal wie tief: kein Verkauf
